@@ -1,0 +1,462 @@
+import React, { useEffect, useState, useMemo } from 'react';
+import { View, Text, StyleSheet, FlatList, Pressable, Image, TextInput, Animated } from 'react-native';
+import { useQuery } from '@tanstack/react-query';
+import { getChatsForUser } from '@/api/chat-functions';
+import { userAuthStore } from '@/store/user-auth-store';
+import { chatsStore } from '@/store/chats-store';
+import { Spinner, Empty, Avatar, Button } from '@/components/ui';
+import { useNavigation } from '@react-navigation/native';
+import { ChatFromBackendType } from '@/types';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+
+interface ChatsScreenProps {
+    searchQuery?: string;
+}
+
+export default function ChatsScreen({ searchQuery = '' }: ChatsScreenProps) {
+    const { user } = userAuthStore();
+    const { setChatsDataArray, setActiveChat } = chatsStore();
+    const navigation = useNavigation();
+
+    console.log('[ChatsScreen] User state:', {
+        userId: user?.userId,
+        role: user?.role,
+        username: user?.username
+    });
+
+    const { data: chats, isLoading, isFetching, refetch, error } = useQuery({
+        queryKey: ['chats', user?.userId, user?.role],
+        queryFn: () => {
+            console.log('[ChatsScreen] Fetching chats for:', {
+                userId: user!.userId,
+                userRole: user!.role
+            });
+            return getChatsForUser({
+                userId: user!.userId,
+                userRole: user!.role,
+                getDetails: true,
+            });
+        },
+        enabled: !!user?.userId && !!user?.role,
+        placeholderData: [], // Show empty array immediately while loading
+        staleTime: 0, // Always fetch fresh data for debugging
+        refetchOnMount: true, // Always refetch on mount
+        refetchOnWindowFocus: true, // Refetch when app comes to foreground
+        gcTime: 300000, // Keep cached data for 5 minutes
+        retry: 1, // Only retry once on failure
+    });
+
+    console.log('[ChatsScreen] Chats data:', {
+        chatsCount: chats?.length || 0,
+        isLoading,
+        isFetching,
+        error: error ? String(error) : null
+    });
+
+    useEffect(() => {
+        if (chats) {
+            setChatsDataArray(chats);
+        }
+    }, [chats]);
+
+    const filteredChats = useMemo(() => {
+        if (!chats) return [];
+        
+        // Sort chats by latest message timestamp (most recent first)
+        const sortedChats = [...chats].sort((a, b) => {
+            const timeA = a.latestMessage?.created_at ? new Date(a.latestMessage.created_at).getTime() : 0;
+            const timeB = b.latestMessage?.created_at ? new Date(b.latestMessage.created_at).getTime() : 0;
+            return timeB - timeA; // Descending order (newest first)
+        });
+        
+        if (!searchQuery.trim()) return sortedChats;
+        
+        const query = searchQuery.toLowerCase();
+        return sortedChats.filter((chat) => {
+            const username = chat.userDetails?.username?.toLowerCase() || '';
+            const latestMessage = chat.latestMessage?.message_text?.toLowerCase() || '';
+            return username.includes(query) || latestMessage.includes(query);
+        });
+    }, [chats, searchQuery]);
+
+    const unreadChatsCount = useMemo(() => {
+        return chats?.filter(c => (c.unseenCount || 0) > 0).length || 0;
+    }, [chats]);
+
+    // Only show spinner on first load, not on refetch
+    if (isLoading && !chats) {
+        return <Spinner fullScreen />;
+    }
+
+    const handleChatPress = (chat: ChatFromBackendType) => {
+        setActiveChat(chat);
+        (navigation as any).navigate('IndividualChat', {
+            chatId: chat.id,
+            freelancerId: chat.freelancer_id,
+            clientId: chat.client_id,
+            otherUserName: chat.userDetails?.username || 'User',
+            otherUserProfilePic: chat.userDetails?.profile_pic || null,
+        });
+    };
+
+    const formatTime = (dateString: string) => {
+        const date = new Date(dateString);
+        const now = new Date();
+        const diffMs = now.getTime() - date.getTime();
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMs / 3600000);
+        const diffDays = Math.floor(diffMs / 86400000);
+
+        if (diffMins < 1) return 'Just now';
+        if (diffMins < 60) return `${diffMins}m`;
+        if (diffHours < 24) return `${diffHours}h`;
+        if (diffDays < 7) return `${diffDays}d`;
+        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    };
+
+    const getPreviewText = (chat: ChatFromBackendType) => {
+        if (!chat.latestMessage) return 'No messages yet';
+        const isFromCurrentUser = user?.role === chat.latestMessage.sender_role;
+        return isFromCurrentUser ? `You: ${chat.latestMessage.message_text}` : chat.latestMessage.message_text;
+    };
+
+    const renderHeader = () => {
+        if (searchQuery.trim()) return null;
+        return (
+            <View style={styles.headerContainer}>
+                <Text style={styles.headerTitle}>Messages</Text>
+                {unreadChatsCount > 0 && (
+                    <View style={styles.headerBadge}>
+                        <Text style={styles.headerBadgeText}>{unreadChatsCount} New</Text>
+                    </View>
+                )}
+            </View>
+        );
+    };
+
+    const renderEmptyState = () => (
+        <View style={styles.emptyStateContainer}>
+            <View style={styles.emptyIconContainer}>
+                <Ionicons name="chatbubbles-outline" size={48} color="#9CA3AF" />
+            </View>
+            <Text style={styles.emptyTitle}>No messages yet</Text>
+            <Text style={styles.emptyDescription}>
+                {searchQuery.trim() 
+                    ? "We couldn't find any chats matching your search." 
+                    : "Connect with others to start chatting!"}
+            </Text>
+            {!searchQuery.trim() && (
+                <Button 
+                    title={user?.role === 'client' ? "Find Freelancers" : "Find Projects"}
+                    onPress={() => navigation.navigate(user?.role === 'client' ? 'ViewFreelancers' : 'FreelancerProjects' as any)}
+                    style={styles.emptyButton}
+                    size="sm"
+                />
+            )}
+        </View>
+    );
+
+    return (
+        <View style={styles.container}>
+            <FlatList
+                data={filteredChats}
+                keyExtractor={(item) => item.id}
+                contentContainerStyle={styles.list}
+                ListHeaderComponent={renderHeader}
+                ListEmptyComponent={renderEmptyState}
+                renderItem={({ item }) => {
+                    const hasUnseen = (item.unseenCount || 0) > 0;
+                    
+                    return (
+                        <Pressable 
+                            onPress={() => handleChatPress(item)}
+                            style={({ pressed }) => [
+                                styles.chatRow,
+                                pressed && styles.chatRowPressed,
+                                hasUnseen && styles.chatRowUnseen
+                            ]}
+                        >
+                            {hasUnseen && <View style={styles.accentLine} />}
+                            
+                            <View style={styles.avatarContainer}>
+                                {item.userDetails?.profile_pic ? (
+                                    <Image
+                                        source={{ uri: item.userDetails.profile_pic }}
+                                        style={styles.avatar}
+                                    />
+                                ) : (
+                                    <View style={styles.avatarPlaceholder}>
+                                        <Text style={styles.avatarText}>
+                                            {item.userDetails?.username?.charAt(0).toUpperCase() || '?'}
+                                        </Text>
+                                    </View>
+                                )}
+                                {hasUnseen && (
+                                    <View style={styles.unreadBadge}>
+                                        <Text style={styles.unreadBadgeText}>
+                                            {item.unseenCount! > 9 ? '9+' : item.unseenCount}
+                                        </Text>
+                                    </View>
+                                )}
+                            </View>
+
+                            <View style={styles.chatContent}>
+                                <View style={styles.chatHeader}>
+                                    <Text 
+                                        style={[
+                                            styles.chatName,
+                                            hasUnseen && styles.chatNameUnseen
+                                        ]} 
+                                        numberOfLines={1}
+                                    >
+                                        {item.userDetails?.username || 'Unknown'}
+                                    </Text>
+                                    {item.latestMessage && (
+                                        <Text style={[
+                                            styles.chatTime,
+                                            hasUnseen && styles.chatTimeUnseen
+                                        ]}>
+                                            {formatTime(item.latestMessage.created_at)}
+                                        </Text>
+                                    )}
+                                </View>
+                                <View style={styles.messagePreviewRow}>
+                                    <Text 
+                                        style={[
+                                            styles.chatPreview,
+                                            !item.latestMessage && styles.noMessages,
+                                            hasUnseen && styles.chatPreviewUnseen
+                                        ]} 
+                                        numberOfLines={1}
+                                    >
+                                        {getPreviewText(item)}
+                                    </Text>
+                                    
+                                    <View style={styles.statusContainer}>
+                                        {hasUnseen ? (
+                                            <View style={styles.unseenDot} />
+                                        ) : (
+                                            <Ionicons name="chevron-forward" size={16} color="#E5E7EB" />
+                                        )}
+                                    </View>
+                                </View>
+                            </View>
+                        </Pressable>
+                    );
+                }}
+                ItemSeparatorComponent={() => <View style={styles.separator} />}
+            />
+        </View>
+    );
+}
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#FFFFFF',
+    },
+    list: {
+        paddingBottom: 20,
+    },
+    headerContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 20,
+        paddingVertical: 16,
+        backgroundColor: '#FFFFFF',
+    },
+    headerTitle: {
+        fontSize: 24,
+        fontWeight: '800',
+        color: '#111827',
+        marginRight: 10,
+    },
+    headerBadge: {
+        backgroundColor: '#EFF6FF',
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: '#BFDBFE',
+    },
+    headerBadgeText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#2563EB',
+    },
+    emptyStateContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 60,
+        paddingHorizontal: 32,
+    },
+    emptyIconContainer: {
+        width: 80,
+        height: 80,
+        borderRadius: 40,
+        backgroundColor: '#F3F4F6',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 16,
+    },
+    emptyTitle: {
+        fontSize: 18,
+        fontWeight: '700',
+        color: '#374151',
+        marginBottom: 8,
+    },
+    emptyDescription: {
+        fontSize: 14,
+        color: '#6B7280',
+        textAlign: 'center',
+        lineHeight: 20,
+        marginBottom: 24,
+    },
+    emptyButton: {
+        minWidth: 160,
+    },
+    chatRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 20,
+        paddingVertical: 16,
+        backgroundColor: '#FFFFFF',
+        position: 'relative',
+    },
+    chatRowPressed: {
+        backgroundColor: '#F9FAFB',
+    },
+    chatRowUnseen: {
+        backgroundColor: '#F8FAFC',
+    },
+    accentLine: {
+        position: 'absolute',
+        left: 0,
+        top: 12,
+        bottom: 12,
+        width: 4,
+        backgroundColor: '#2563EB',
+        borderTopRightRadius: 4,
+        borderBottomRightRadius: 4,
+    },
+    separator: {
+        height: 1,
+        backgroundColor: '#F1F5F9',
+        marginLeft: 88,
+        marginRight: 20,
+    },
+    avatarContainer: {
+        position: 'relative',
+        marginRight: 16,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+        elevation: 2,
+    },
+    avatar: {
+        width: 52,
+        height: 52,
+        borderRadius: 26,
+        backgroundColor: '#F1F5F9',
+    },
+    avatarPlaceholder: {
+        width: 52,
+        height: 52,
+        borderRadius: 26,
+        backgroundColor: '#F1F5F9',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    avatarText: {
+        color: '#6B7280',
+        fontSize: 20,
+        fontWeight: '600',
+    },
+    unreadBadge: {
+        position: 'absolute',
+        top: -2,
+        right: -2,
+        minWidth: 20,
+        height: 20,
+        borderRadius: 10,
+        backgroundColor: '#EF4444',
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 5,
+        borderWidth: 2,
+        borderColor: '#FFFFFF',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.15,
+        shadowRadius: 3,
+        elevation: 3,
+    },
+    unreadBadgeText: {
+        color: '#FFFFFF',
+        fontSize: 10,
+        fontWeight: '700',
+    },
+    chatContent: {
+        flex: 1,
+        justifyContent: 'center',
+    },
+    chatHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 4,
+    },
+    chatName: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: '#1F2937',
+        flex: 1,
+        marginRight: 8,
+    },
+    chatNameUnseen: {
+        color: '#111827',
+    },
+    chatTime: {
+        fontSize: 12,
+        color: '#9CA3AF',
+        fontWeight: '500',
+    },
+    chatTimeUnseen: {
+        color: '#2563EB',
+        fontWeight: '700',
+    },
+    messagePreviewRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    chatPreview: {
+        fontSize: 14,
+        color: '#6B7280',
+        lineHeight: 20,
+        flex: 1,
+        marginRight: 12,
+    },
+    chatPreviewUnseen: {
+        color: '#1F293B',
+        fontWeight: '600',
+    },
+    noMessages: {
+        fontStyle: 'italic',
+        color: '#94A3B8',
+    },
+    statusContainer: {
+        marginLeft: 8,
+        justifyContent: 'center',
+        alignItems: 'center',
+        width: 16,
+    },
+    unseenDot: {
+        width: 10,
+        height: 10,
+        borderRadius: 5,
+        backgroundColor: '#2563EB',
+    },
+});

@@ -1,0 +1,501 @@
+import React from 'react';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { Text, View, StyleSheet } from 'react-native';
+import { CustomHeader } from '../components/CustomHeader';
+import { Ionicons } from '@expo/vector-icons';
+import { getFocusedRouteNameFromRoute, useNavigation } from '@react-navigation/native';
+import { useUnseenChatsCount } from '../hooks/useUnseenChatsCount';
+import { getAllNotificationsForUser } from '@/api/notifications-functions';
+import { useQuery } from '@tanstack/react-query';
+import { userAuthStore } from '@/store/user-auth-store';
+
+// Import screens
+import FreelancerDashboardScreen from '../screens/freelancer/FreelancerDashboardScreen';
+import FreelancerProfileScreen from '../screens/freelancer/FreelancerProfileScreen';
+import FreelancerInvitesScreen from '../screens/freelancer/FreelancerInvitesScreen';
+import FreelancerProjectsScreen from '../screens/freelancer/FreelancerProjectsScreen';
+import ProjectDetailsFreelancerScreen from '../screens/freelancer/ProjectDetailsScreen';
+import FreelancerDetailsPageScreen from '../screens/freelancer/FreelancerDetailsPageScreen';
+import ClientProfileFreelancerScreen from '../screens/freelancer/ClientProfileScreen';
+import NotificationsScreen from '../screens/shared/NotificationsScreen';
+// Chat screens temporarily disabled during Freelansync DB migration
+// import ProjectChatScreen from '../screens/chat/ProjectChatScreen';
+// import ChatsScreen from '../screens/chat/ChatsScreen';
+// import IndividualChatScreen from '../screens/chat/IndividualChatScreen';
+
+const Tab = createBottomTabNavigator();
+const Stack = createNativeStackNavigator();
+
+// Chats Screen Wrapper with Search State - DISABLED
+/* function ChatsScreenWrapper() {
+    const [searchQuery, setSearchQuery] = React.useState('');
+    const unseenChatsCount = useUnseenChatsCount();
+    const navigation = useNavigation();
+
+    React.useLayoutEffect(() => {
+        navigation.setOptions({
+            header: () => (
+                <CustomHeader 
+                    title="Chats" 
+                    role="freelancer" 
+                    unseenChatsCount={unseenChatsCount}
+                    hideChatIcon={true}
+                    showSearchBar={true}
+                    searchQuery={searchQuery}
+                    onSearchChange={setSearchQuery}
+                    searchPlaceholder="Search conversations..."
+                />
+            ),
+        });
+    }, [navigation, unseenChatsCount, searchQuery]);
+
+    return <ChatsScreen searchQuery={searchQuery} />;
+} */
+
+// Freelancer Projects Screen Wrapper with Search State
+function FreelancerProjectsScreenWrapper() {
+    const [searchQuery, setSearchQuery] = React.useState('');
+    const unseenChatsCount = useUnseenChatsCount();
+    const navigation = useNavigation();
+
+    React.useLayoutEffect(() => {
+        navigation.setOptions({
+            header: () => (
+                <CustomHeader 
+                    title="My Projects" 
+                    role="freelancer" 
+                    unseenChatsCount={unseenChatsCount}
+                    showSearchBar={true}
+                    searchQuery={searchQuery}
+                    onSearchChange={setSearchQuery}
+                    searchPlaceholder="Search projects..."
+                />
+            ),
+        });
+    }, [navigation, unseenChatsCount, searchQuery]);
+
+    return <FreelancerProjectsScreen navigation={navigation as any} route={{ params: {} } as any} searchQuery={searchQuery} />;
+}
+
+// Stack Navigator for Dashboard
+function DashboardStack() {
+    const unseenChatsCount = useUnseenChatsCount();
+    
+    return (
+        <Stack.Navigator
+            screenOptions={{
+                header: () => <CustomHeader title="Dashboard" role="freelancer" unseenChatsCount={unseenChatsCount} />,
+                animation: 'fade_from_bottom',
+            }}
+        >
+            <Stack.Screen name="DashboardMain" component={FreelancerDashboardScreen} />
+            <Stack.Screen 
+                name="ProjectDetails" 
+                component={ProjectDetailsFreelancerScreen}
+                options={{
+                    header: () => <CustomHeader title="Project Details" role="freelancer" unseenChatsCount={unseenChatsCount} />,
+                }}
+            />
+            <Stack.Screen 
+                name="FreelancerProfile" 
+                component={FreelancerProfileScreen}
+                options={{
+                    header: () => <CustomHeader title="My Profile" role="freelancer" unseenChatsCount={unseenChatsCount} />,
+                }}
+            />
+            {/* Chat functionality temporarily disabled - will be re-enabled with new DB
+            <Stack.Screen 
+                name="Chats" 
+                component={ChatsScreenWrapper}
+            />
+            <Stack.Screen 
+                name="ProjectChat" 
+                component={ProjectChatScreen}
+            />
+            */}
+            <Stack.Screen 
+                name="ClientProfile" 
+                component={ClientProfileFreelancerScreen}
+                options={{
+                    header: () => <CustomHeader title="Client Profile" role="freelancer" unseenChatsCount={unseenChatsCount} />,
+                }}
+            />
+            <Stack.Screen
+                name="Notifications"
+                component={NotificationsScreen}
+                options={{
+                    headerShown: false,
+                }}
+            />
+            {/* Chat functionality temporarily disabled - will be re-enabled with new DB
+            <Stack.Screen 
+                name="IndividualChat" 
+                component={IndividualChatScreen}
+            />
+            */}
+        </Stack.Navigator>
+    );
+}
+
+// Stack Navigator for Invitations
+function InvitationsStack() {
+    const unseenChatsCount = useUnseenChatsCount();
+    
+    return (
+        <Stack.Navigator
+            screenOptions={{
+                header: () => <CustomHeader title="Invitations" role="freelancer" unseenChatsCount={unseenChatsCount} />,
+                animation: 'slide_from_right',
+            }}
+        >
+            <Stack.Screen name="InvitationsMain" component={FreelancerInvitesScreen} />
+            <Stack.Screen 
+                name="ProjectDetails" 
+                component={ProjectDetailsFreelancerScreen}
+                options={{
+                    header: () => <CustomHeader title="Project Details" role="freelancer" unseenChatsCount={unseenChatsCount} />,
+                }}
+            />
+            <Stack.Screen
+                name="Notifications"
+                component={NotificationsScreen}
+                options={{
+                    headerShown: false,
+                }}
+            />
+            {/* Chat functionality temporarily disabled - will be re-enabled with new DB
+            <Stack.Screen 
+                name="ProjectChat" 
+                component={ProjectChatScreen}
+            />
+            <Stack.Screen 
+                name="Chats" 
+                component={ChatsScreenWrapper}
+            />
+            <Stack.Screen 
+                name="IndividualChat" 
+                component={IndividualChatScreen}
+            />
+            */}
+        </Stack.Navigator>
+    );
+}
+
+// Stack Navigator for My Projects
+function MyProjectsStack() {
+    const unseenChatsCount = useUnseenChatsCount();
+    
+    return (
+        <Stack.Navigator
+            screenOptions={{
+                animation: 'slide_from_left',
+            }}
+        >
+            <Stack.Screen name="ProjectsMain" component={FreelancerProjectsScreenWrapper} />
+            <Stack.Screen 
+                name="ProjectDetails" 
+                component={ProjectDetailsFreelancerScreen}
+                options={{
+                    header: () => <CustomHeader title="Project Details" role="freelancer" unseenChatsCount={unseenChatsCount} />,
+                }}
+            />
+            <Stack.Screen
+                name="Notifications"
+                component={NotificationsScreen}
+                options={{
+                    headerShown: false,
+                }}
+            />
+            {/* Chat functionality temporarily disabled - will be re-enabled with new DB
+            <Stack.Screen 
+                name="ProjectChat" 
+                component={ProjectChatScreen}
+            />
+            <Stack.Screen 
+                name="Chats" 
+                component={ChatsScreenWrapper}
+            />
+            <Stack.Screen 
+                name="IndividualChat" 
+                component={IndividualChatScreen}
+            />
+            */}
+        </Stack.Navigator>
+    );
+}
+
+// Stack Navigator for Freelancer Details (for browsing other freelancers)
+function FreelancersStack() {
+    const unseenChatsCount = useUnseenChatsCount();
+    
+    return (
+        <Stack.Navigator
+            screenOptions={{
+                header: () => <CustomHeader title="Freelancers" role="freelancer" unseenChatsCount={unseenChatsCount} />,
+                animation: 'fade',
+            }}
+        >
+            <Stack.Screen name="FreelancerDetailsMain" component={FreelancerDetailsPageScreen} />
+            <Stack.Screen
+                name="Notifications"
+                component={NotificationsScreen}
+                options={{
+                    headerShown: false,
+                }}
+            />
+        </Stack.Navigator>
+    );
+}
+
+// Custom Tab Bar Icon
+const TabIcon = ({ 
+    iconOutline, 
+    iconFilled, 
+    label, 
+    focused,
+    badgeCount = 0
+}: { 
+    iconOutline: keyof typeof Ionicons.glyphMap; 
+    iconFilled: keyof typeof Ionicons.glyphMap; 
+    label: string; 
+    focused: boolean;
+    badgeCount?: number;
+}) => (
+    <View style={styles.tabItem}>
+        <View>
+            <Ionicons 
+                name={focused ? iconFilled : iconOutline} 
+                size={24} 
+                color={focused ? '#0532A9' : '#999'} 
+                style={focused && styles.tabIconFocused}
+            />
+            {badgeCount > 0 && (
+                <View style={styles.badge}>
+                    <Text style={styles.badgeText}>
+                        {badgeCount > 9 ? '9+' : badgeCount}
+                    </Text>
+                </View>
+            )}
+        </View>
+        <Text style={[styles.tabLabel, focused && styles.tabLabelFocused]}>{label}</Text>
+    </View>
+);
+
+export default function FreelancerNavigator() {
+    const { user } = userAuthStore();
+    
+    // Fetch notifications to get unread count
+    const { data: notifications } = useQuery({
+        queryKey: ['get-all-notifications-for-user', user?.userId],
+        queryFn: () => getAllNotificationsForUser(user!.userId),
+        enabled: !!user?.userId,
+        refetchInterval: 20 * 1000,
+        refetchIntervalInBackground: true,
+    });
+
+    const unreadNotificationCount = notifications?.filter((n) => !n.read).length || 0;
+
+    return (
+        <Tab.Navigator
+            screenOptions={{
+                headerShown: false,
+                tabBarStyle: styles.tabBar,
+                tabBarShowLabel: false,
+            }}
+        >
+            <Tab.Screen
+                name="Dashboard"
+                component={DashboardStack}
+                options={({ route }) => {
+                    const routeName = getFocusedRouteNameFromRoute(route) ?? 'DashboardMain';
+                    const hideTabBar = routeName === 'Chats' || routeName === 'ProjectChat' || routeName === 'IndividualChat';
+                    return {
+                        tabBarIcon: ({ focused }) => (
+                            <TabIcon 
+                                iconOutline="home-outline" 
+                                iconFilled="home" 
+                                label="Dashboard" 
+                                focused={focused && routeName === 'DashboardMain'} 
+                            />
+                        ),
+                        tabBarStyle: hideTabBar ? { display: 'none' } : styles.tabBar,
+                    };
+                }}
+                listeners={({ navigation }) => ({
+                    tabPress: (e) => {
+                        const state = navigation.getState();
+                        const routeIndex = state.routes.findIndex((r: any) => r.name === 'Dashboard');
+                        if (routeIndex !== -1) {
+                            const dashboardState = state.routes[routeIndex].state;
+                            if (dashboardState && dashboardState.index > 0) {
+                                e.preventDefault();
+                                navigation.reset({
+                                    index: 0,
+                                    routes: [{ name: 'Dashboard' }],
+                                });
+                            }
+                        }
+                    },
+                })}
+            />
+            <Tab.Screen
+                name="Invitations"
+                component={InvitationsStack}
+                options={({ route }) => {
+                    const routeName = getFocusedRouteNameFromRoute(route) ?? 'InvitationsMain';
+                    const hideTabBar = routeName === 'Chats' || routeName === 'ProjectChat' || routeName === 'IndividualChat';
+                    return {
+                        tabBarIcon: ({ focused }) => (
+                            <TabIcon 
+                                iconOutline="mail-outline" 
+                                iconFilled="mail" 
+                                label="Invites" 
+                                focused={focused && routeName === 'InvitationsMain'} 
+                            />
+                        ),
+                        tabBarStyle: hideTabBar ? { display: 'none' } : styles.tabBar,
+                    };
+                }}
+                listeners={({ navigation }) => ({
+                    tabPress: (e) => {
+                        const state = navigation.getState();
+                        const routeIndex = state.routes.findIndex((r: any) => r.name === 'Invitations');
+                        if (routeIndex !== -1) {
+                            const invitationsState = state.routes[routeIndex].state;
+                            if (invitationsState && invitationsState.index > 0) {
+                                e.preventDefault();
+                                navigation.reset({
+                                    index: 0,
+                                    routes: [{ name: 'Invitations' }],
+                                });
+                            }
+                        }
+                    },
+                })}
+            />
+            <Tab.Screen
+                name="Notifications"
+                component={NotificationsScreen}
+                options={{
+                    tabBarIcon: ({ focused }) => (
+                        <TabIcon 
+                            iconOutline="notifications-outline" 
+                            iconFilled="notifications" 
+                            label="Alerts" 
+                            focused={focused} 
+                            badgeCount={unreadNotificationCount}
+                        />
+                    ),
+                }}
+            />
+            <Tab.Screen
+                name="Projects"
+                component={MyProjectsStack}
+                options={({ route }) => {
+                    const routeName = getFocusedRouteNameFromRoute(route) ?? 'ProjectsMain';
+                    const hideTabBar = routeName === 'Chats' || routeName === 'ProjectChat' || routeName === 'IndividualChat';
+                    return {
+                        tabBarIcon: ({ focused }) => (
+                            <TabIcon 
+                                iconOutline="folder-outline" 
+                                iconFilled="folder" 
+                                label="Projects" 
+                                focused={focused && routeName === 'ProjectsMain'} 
+                            />
+                        ),
+                        tabBarStyle: hideTabBar ? { display: 'none' } : styles.tabBar,
+                    };
+                }}
+                listeners={({ navigation }) => ({
+                    tabPress: (e) => {
+                        const state = navigation.getState();
+                        const routeIndex = state.routes.findIndex((r: any) => r.name === 'Projects');
+                        if (routeIndex !== -1) {
+                            const projectsState = state.routes[routeIndex].state;
+                            if (projectsState && projectsState.index > 0) {
+                                e.preventDefault();
+                                navigation.reset({
+                                    index: 0,
+                                    routes: [{ name: 'Projects' }],
+                                });
+                            }
+                        }
+                    },
+                })}
+            />
+            <Tab.Screen
+                name="Freelancers"
+                component={FreelancersStack}
+                options={({ route }) => {
+                    const routeName = getFocusedRouteNameFromRoute(route) ?? 'FreelancerDetailsMain';
+                    return {
+                        tabBarIcon: ({ focused }) => (
+                            <TabIcon 
+                                iconOutline="people-outline" 
+                                iconFilled="people" 
+                                label="People" 
+                                focused={focused && routeName === 'FreelancerDetailsMain'} 
+                            />
+                        ),
+                    };
+                }}
+            />
+        </Tab.Navigator>
+    );
+}
+
+const styles = StyleSheet.create({
+    tabBar: {
+        height: 70,
+        paddingBottom: 10,
+        paddingTop: 8,
+        backgroundColor: '#fff',
+        borderTopWidth: 1,
+        borderTopColor: '#e0e0e0',
+        elevation: 8,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+    },
+    tabItem: {
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    tabIcon: {
+        fontSize: 24,
+        marginBottom: 4,
+    },
+    tabIconFocused: {
+        transform: [{ scale: 1.1 }],
+    },
+    tabLabel: {
+        fontSize: 12,
+        fontWeight: '500',
+        color: '#666',
+    },
+    tabLabelFocused: {
+        color: '#0532A9',
+        fontWeight: '600',
+    },
+    badge: {
+        position: 'absolute',
+        top: -4,
+        right: -8,
+        backgroundColor: '#DC2626',
+        borderRadius: 10,
+        minWidth: 18,
+        height: 18,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 4,
+        borderWidth: 2,
+        borderColor: '#FFFFFF',
+    },
+    badgeText: {
+        color: '#FFFFFF',
+        fontSize: 10,
+        fontWeight: '700',
+    },
+});
