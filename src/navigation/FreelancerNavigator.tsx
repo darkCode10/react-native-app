@@ -19,6 +19,7 @@ import ProjectDetailsFreelancerScreen from '../screens/freelancer/ProjectDetails
 import FreelancerDetailsPageScreen from '../screens/freelancer/FreelancerDetailsPageScreen';
 import ClientProfileFreelancerScreen from '../screens/freelancer/ClientProfileScreen';
 import NotificationsScreen from '../screens/shared/NotificationsScreen';
+import MilestoneDetailsScreen from '../screens/shared/MilestoneDetailsScreen';
 // Chat screens temporarily disabled during Freelansync DB migration
 // import ProjectChatScreen from '../screens/chat/ProjectChatScreen';
 // import ChatsScreen from '../screens/chat/ChatsScreen';
@@ -128,6 +129,13 @@ function DashboardStack() {
                     headerShown: false,
                 }}
             />
+            <Stack.Screen
+                name="MilestoneDetails"
+                component={MilestoneDetailsScreen}
+                options={{
+                    headerShown: false,
+                }}
+            />
             {/* Chat functionality temporarily disabled - will be re-enabled with new DB
             <Stack.Screen 
                 name="IndividualChat" 
@@ -160,6 +168,13 @@ function InvitationsStack() {
             <Stack.Screen
                 name="Notifications"
                 component={NotificationsScreen}
+                options={{
+                    headerShown: false,
+                }}
+            />
+            <Stack.Screen
+                name="MilestoneDetails"
+                component={MilestoneDetailsScreen}
                 options={{
                     headerShown: false,
                 }}
@@ -203,6 +218,13 @@ function MyProjectsStack() {
             <Stack.Screen
                 name="Notifications"
                 component={NotificationsScreen}
+                options={{
+                    headerShown: false,
+                }}
+            />
+            <Stack.Screen
+                name="MilestoneDetails"
+                component={MilestoneDetailsScreen}
                 options={{
                     headerShown: false,
                 }}

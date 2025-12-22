@@ -113,12 +113,26 @@ export default function NotificationsScreen({ navigation }: Props) {
                 navigation.navigate('ProjectDetails', {
                     projectId: notification.project_id,
                 });
+            } else if (notification.type === 'Milestone_Submitted' && notification.milestone_id) {
+                queryClient.invalidateQueries({
+                    queryKey: ['get-milestone-details-by-id', notification.milestone_id],
+                });
+                navigation.navigate('MilestoneDetails', {
+                    milestoneId: notification.milestone_id,
+                });
             }
         } else {
             // Freelancer
             if (notification.type === 'Invitation_Recieved') {
                 queryClient.invalidateQueries({
                     queryKey: ['freelancerInvitations'],
+                });
+            } else if (notification.type === 'Milestone_Assigned' && notification.project_id) {
+                queryClient.invalidateQueries({
+                    queryKey: ['project', notification.project_id],
+                });
+                navigation.navigate('ProjectDetails', {
+                    projectId: notification.project_id,
                 });
                 navigation.navigate('Invitations');
             } else if (notification.type === 'Milestone_Assigned' && notification.project_id) {
@@ -142,6 +156,8 @@ export default function NotificationsScreen({ navigation }: Props) {
                 return 'mail';
             case 'Milestone_Assigned':
                 return 'flag';
+            case 'Milestone_Submitted':
+                return 'checkmark-done';
             default:
                 return 'notifications';
         }
@@ -157,6 +173,8 @@ export default function NotificationsScreen({ navigation }: Props) {
                 return '#3B82F6';
             case 'Milestone_Assigned':
                 return '#F59E0B';
+            case 'Milestone_Submitted':
+                return '#8B5CF6';
             default:
                 return '#6B7280';
         }

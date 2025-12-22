@@ -20,6 +20,7 @@ import ClientProfileScreen from '../screens/client/ClientProfileScreen';
 import ViewFreelancersScreen from '../screens/client/ViewFreelancersScreen';
 import FreelancerDetailsScreen from '../screens/client/FreelancerDetailsScreen';
 import NotificationsScreen from '../screens/shared/NotificationsScreen';
+import MilestoneDetailsScreen from '../screens/shared/MilestoneDetailsScreen';
 // Chat screens temporarily disabled during Freelansync DB migration
 // import ProjectChatScreen from '../screens/chat/ProjectChatScreen';
 // import ChatsScreen from '../screens/chat/ChatsScreen';
@@ -151,6 +152,13 @@ function DashboardStack() {
                     headerShown: false,
                 }}
             />
+            <Stack.Screen
+                name="MilestoneDetails"
+                component={MilestoneDetailsScreen}
+                options={{
+                    headerShown: false,
+                }}
+            />
             {/* Chat functionality temporarily disabled - will be re-enabled with new DB
             <Stack.Screen
                 name="Chats"
@@ -215,6 +223,13 @@ function MyProjectsStack() {
                 component={FreelancerDetailsScreen}
                 options={{
                     header: () => <CustomHeader title="Freelancer Details" role="client" unseenChatsCount={unseenChatsCount} />,
+                }}
+            />
+            <Stack.Screen
+                name="MilestoneDetails"
+                component={MilestoneDetailsScreen}
+                options={{
+                    headerShown: false,
                 }}
             />
             {/* Chat functionality temporarily disabled - will be re-enabled with new DB

@@ -275,9 +275,66 @@ export type NotificationsFromBackendType = {
     to_user_id: string;
     created_at: string;
     project_id?: string;
+    milestone_id?: string;
     type:
         | "Invitation_Accepted"
         | "Invitation_Rejected"
         | "Invitation_Recieved"
-        | "Milestone_Assigned";
+        | "Milestone_Assigned"
+        | "Milestone_Submitted";
+};
+
+// ============================================
+// MILESTONE TYPES (From Freelansync)
+// ============================================
+
+export type MilestoneStatusType = "LOCKED" | "IN_PROGRESS" | "COMPLETED" | "SUBMITTED";
+
+export type MilestonesFromBackendType = {
+    id: string;
+    title: string;
+    description: string;
+    amount: number;
+    project: string;
+    client: string;
+    created_at: string;
+    file: string | null;
+    freelancer: {
+        id: string;
+        username: string;
+        profile_pic: string;
+    };
+    status: MilestoneStatusType;
+};
+
+export type MilestoneDetailsFromBackendType = {
+    id: string;
+    title: string;
+    description: string;
+    amount: number;
+    client: {
+        id: string;
+        username: string;
+        profile_pic: string;
+        email: string;
+    };
+    created_at: string;
+    file: string | null;
+    submission_description: string | null;
+    freelancer: {
+        id: string;
+        profile_pic: string;
+        username: string;
+        domains: string[];
+        email: string;
+    };
+    project: {
+        id: string;
+        title: string;
+        description: string;
+        budget: number;
+        domains: string[];
+        status: "DRAFT";
+    };
+    status: MilestoneStatusType;
 };
