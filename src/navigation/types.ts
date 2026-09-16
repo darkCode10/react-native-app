@@ -2,6 +2,7 @@ import { NavigatorScreenParams } from '@react-navigation/native';
 
 // Root Stack Navigator
 export type RootStackParamList = {
+    Splash: undefined;
     Landing: undefined;
     Login: undefined;
     Signup: undefined;
@@ -21,6 +22,8 @@ export type ClientStackParamList = {
     CreateProject: undefined;
     AllProjects: undefined;
     ProjectDetails: { projectId: string };
+    CreateMilestone: { projectId: string };
+    MilestoneDetails: { milestoneId: string };
     PendingInvitations: { projectId: string };
     ClientProfile: undefined;
     ViewFreelancers: undefined;
@@ -34,6 +37,8 @@ export type ClientStackParamList = {
         otherUserName: string;
         otherUserProfilePic: string | null;
     };
+    Notifications: undefined;
+    NotificationsMain: undefined;
 };
 
 // Freelancer Tab Navigator
@@ -49,6 +54,7 @@ export type FreelancerStackParamList = {
     FreelancerInvites: undefined;
     FreelancerProjects: undefined;
     ProjectDetails: { projectId: string };
+    MilestoneDetails: { milestoneId: string };
     FreelancerDetailsPage: { freelancerId: string };
     ClientProfile: { clientId: string };
     ProjectChat: { projectId: string };
@@ -60,6 +66,8 @@ export type FreelancerStackParamList = {
         otherUserName: string;
         otherUserProfilePic: string | null;
     };
+    Notifications: undefined;
+    NotificationsMain: undefined;
 };
 
 

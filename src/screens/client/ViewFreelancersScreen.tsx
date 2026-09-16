@@ -4,6 +4,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ClientStackParamList } from '@/navigation/types';
 import { useQuery } from '@tanstack/react-query';
 import { getAllFreelancers } from '@/api/freelancer-functions';
+import { getFreelancerAverageRating } from '@/api/review-functions';
 import { Spinner, Empty, Avatar, Button } from '@/components/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -49,6 +50,88 @@ const AnimatedCard = ({ children, index, onPress }: { children: React.ReactNode,
                 {children}
             </Pressable>
         </Animated.View>
+    );
+};
+
+// Freelancer Card Content with Rating
+const FreelancerCardContent = ({ item, visibleSkillsCount }: { item: any, visibleSkillsCount: number }) => {
+    const { data: ratingData } = useQuery({
+        queryKey: ['freelancerRating', item.id],
+        queryFn: () => getFreelancerAverageRating(item.id),
+        staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+    });
+
+    return (
+        <View style={styles.cardMain}>
+            {/* Left Accent Line - Refined */}
+            <View style={styles.accentLine} />
+            
+            <View style={styles.cardContent}>
+                {/* Header: Avatar + Info */}
+                <View style={styles.headerRow}>
+                    <View style={styles.avatarContainer}>
+                        <Avatar source={item.profile_pic} fallback={item.username} size={54} />
+                    </View>
+                    
+                    <View style={styles.headerInfo}>
+                        <View style={styles.nameRow}>
+                            <Text style={styles.name} numberOfLines={1}>{item.username}</Text>
+                            <View style={styles.ratingBadge}>
+                                <Ionicons name="star" size={11} color="#F59E0B" />
+                                <Text style={styles.ratingText}>
+                                    {ratingData && ratingData.reviewCount > 0 
+                                        ? ratingData.averageRating.toFixed(1) 
+                                        : 'N/A'}
+                                </Text>
+                            </View>
+                        </View>
+                        <Text style={styles.role}>Professional Freelancer</Text>
+                    </View>
+                </View>
+
+                {/* Description */}
+                <Text style={styles.description} numberOfLines={2}>
+                    {item.description}
+                </Text>
+
+                {/* Domains (if available) */}
+                {item.domains && item.domains.length > 0 && (
+                    <View style={styles.domainsRow}>
+                        {item.domains.slice(0, 2).map((domain: string, idx: number) => (
+                            <View key={idx} style={styles.domainChip}>
+                                <Ionicons name="grid-outline" size={10} color="#6B21A8" />
+                                <Text style={styles.domainText} numberOfLines={1}>{domain}</Text>
+                            </View>
+                        ))}
+                        {item.domains.length > 2 && (
+                            <View style={[styles.domainChip, styles.moreDomainChip]}>
+                                <Text style={styles.moreDomainText}>+{item.domains.length - 2}</Text>
+                            </View>
+                        )}
+                    </View>
+                )}
+
+                {/* Skills & Action */}
+                <View style={styles.footerRow}>
+                    <View style={styles.skillsContainer}>
+                        {item.skills.slice(0, visibleSkillsCount).map((skill: string, idx: number) => (
+                            <View key={idx} style={styles.skillChip}>
+                                <Text style={styles.skillText} numberOfLines={1}>{skill}</Text>
+                            </View>
+                        ))}
+                        {item.skills.length > visibleSkillsCount && (
+                            <View style={[styles.skillChip, styles.moreSkillChip]}>
+                                <Text style={[styles.skillText, styles.moreSkillText]}>+{item.skills.length - visibleSkillsCount}</Text>
+                            </View>
+                        )}
+                    </View>
+                    
+                    <View style={styles.viewProfileButton}>
+                        <Ionicons name="arrow-forward" size={18} color="#0532A9" />
+                    </View>
+                </View>
+            </View>
+        </View>
     );
 };
 
@@ -202,72 +285,7 @@ export default function ViewFreelancersScreen({ navigation, searchQuery = '' }: 
                         index={index} 
                         onPress={() => navigation.navigate('FreelancerDetails', { freelancerId: item.id })}
                     >
-                        <View style={styles.cardMain}>
-                            {/* Left Accent Line - Refined */}
-                            <View style={[styles.accentLine, { backgroundColor: index % 2 === 0 ? '#0532A9' : '#0532A9' }]} />
-                            
-                            <View style={styles.cardContent}>
-                                {/* Header: Avatar + Info */}
-                                <View style={styles.headerRow}>
-                                    <View style={styles.avatarContainer}>
-                                        <Avatar source={item.profile_pic} fallback={item.username} size={54} />
-                                    </View>
-                                    
-                                    <View style={styles.headerInfo}>
-                                        <View style={styles.nameRow}>
-                                            <Text style={styles.name} numberOfLines={1}>{item.username}</Text>
-                                            <View style={styles.ratingBadge}>
-                                                <Ionicons name="star" size={11} color="#F59E0B" />
-                                                <Text style={styles.ratingText}>5.0</Text>
-                                            </View>
-                                        </View>
-                                        <Text style={styles.role}>Professional Freelancer</Text>
-                                    </View>
-                                </View>
-
-                                {/* Description */}
-                                <Text style={styles.description} numberOfLines={2}>
-                                    {item.description}
-                                </Text>
-
-                                {/* Domains (if available) */}
-                                {item.domains && item.domains.length > 0 && (
-                                    <View style={styles.domainsRow}>
-                                        {item.domains.slice(0, 2).map((domain, idx) => (
-                                            <View key={idx} style={styles.domainChip}>
-                                                <Ionicons name="grid-outline" size={10} color="#6B21A8" />
-                                                <Text style={styles.domainText} numberOfLines={1}>{domain}</Text>
-                                            </View>
-                                        ))}
-                                        {item.domains.length > 2 && (
-                                            <View style={[styles.domainChip, styles.moreDomainChip]}>
-                                                <Text style={styles.moreDomainText}>+{item.domains.length - 2}</Text>
-                                            </View>
-                                        )}
-                                    </View>
-                                )}
-
-                                {/* Skills & Action */}
-                                <View style={styles.footerRow}>
-                                    <View style={styles.skillsContainer}>
-                                        {item.skills.slice(0, visibleSkillsCount).map((skill, idx) => (
-                                            <View key={idx} style={styles.skillChip}>
-                                                <Text style={styles.skillText} numberOfLines={1}>{skill}</Text>
-                                            </View>
-                                        ))}
-                                        {item.skills.length > visibleSkillsCount && (
-                                            <View style={[styles.skillChip, styles.moreSkillChip]}>
-                                                <Text style={[styles.skillText, styles.moreSkillText]}>+{item.skills.length - visibleSkillsCount}</Text>
-                                            </View>
-                                        )}
-                                    </View>
-                                    
-                                    <View style={styles.viewProfileButton}>
-                                        <Ionicons name="arrow-forward" size={18} color="#0532A9" />
-                                    </View>
-                                </View>
-                            </View>
-                        </View>
+                        <FreelancerCardContent item={item} visibleSkillsCount={visibleSkillsCount} />
                     </AnimatedCard>
                 );
                 }}

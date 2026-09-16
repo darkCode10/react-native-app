@@ -1,27 +1,35 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Image, Alert, Dimensions, Platform, Modal, TextInput } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, Pressable, Image, Alert, Dimensions, Platform, Modal, TextInput, ActivityIndicator, Animated, KeyboardAvoidingView } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ClientStackParamList } from '@/navigation/types';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getProjectDetailsById } from '@/api/project-functions';
+import { getProjectDetailsById, markProjectAsCompleted, deleteProject } from '@/api/project-functions';
 import { getAllFreelancers } from '@/api/freelancer-functions';
 import { createInvitation, getAllInvitationsForProject, deleteInvitation } from '@/api/project-invitations-functions';
-import { getAllMilestonesForProject, createMilestone } from '@/api/milestone-functions';
+import { getAllMilestonesForProject } from '@/api/milestone-functions';
+import { getFreelancerRecommendations, type RecommendedFreelancer } from '@/api/recommendation-functions';
+import { getFreelancerAverageRating } from '@/api/review-functions';
 import { Spinner, Card, Button, Avatar, Empty } from '@/components/ui';
 import { userAuthStore } from '@/store/user-auth-store';
 import { toast } from '@/utils/toast';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import type { MilestoneStatusType } from '@/types';
+import { ReviewModal } from '@/components/ReviewModal';
+import { supabaseClient } from '@/config/supabase';
 
 type Props = NativeStackScreenProps<ClientStackParamList, 'ProjectDetails'>;
 
 export default function ProjectDetailsScreen({ route, navigation }: Props) {
     const { projectId } = route.params;
     const { user } = userAuthStore();
-    const [activeTab, setActiveTab] = useState<'info' | 'freelancers' | 'milestones'>('info');
-    const [createMilestoneModalVisible, setCreateMilestoneModalVisible] = useState(false);
     const queryClient = useQueryClient();
+    const [activeTab, setActiveTab] = useState<'info' | 'freelancers' | 'milestones'>('info');
+    
+    // AI Recommendation states
+    const [showAIModal, setShowAIModal] = useState(false);
+    const [numRecommendations, setNumRecommendations] = useState('5');
+    const [isSearching, setIsSearching] = useState(false);
+    const [recommendedFreelancers, setRecommendedFreelancers] = useState<RecommendedFreelancer[]>([]);
 
     const { data: project, isLoading, isError } = useQuery({
         queryKey: ['project', projectId],
@@ -44,10 +52,122 @@ export default function ProjectDetailsScreen({ route, navigation }: Props) {
     // Fetch milestones for this project
     const { data: milestones, isLoading: milestonesLoading } = useQuery({
         queryKey: ['get-all-milestones-for-project', projectId],
-        queryFn: () => getAllMilestonesForProject(projectId),
+        queryFn: async () => {
+            const result = await getAllMilestonesForProject(projectId);
+            console.log('[ProjectDetails] Milestones fetched:', result);
+            return result;
+        },
         enabled: activeTab === 'milestones',
+        refetchInterval: 5000, // Poll every 5s for updates
     });
 
+    // Complete Project Mutation - MUST BE BEFORE EARLY RETURNS
+    const completeProjectMutation = useMutation({
+        mutationFn: markProjectAsCompleted,
+        onSuccess: (success) => {
+            console.log('[Complete Project] Mutation success, result:', success);
+            if (!success) {
+                toast.warning('Cannot mark project as completed. Some milestones are not completed yet.');
+            } else {
+                toast.success('Project marked as completed successfully!');
+                
+                // Invalidate project details
+                queryClient.invalidateQueries({
+                    queryKey: ['project', projectId],
+                });
+                
+                // Invalidate client profile to update wallet balance (for refund)
+                if (user?.userId) {
+                    queryClient.invalidateQueries({
+                        queryKey: ['clientProfile', user.userId],
+                    });
+                }
+            }
+        },
+        onError: (error: Error) => {
+            console.error('[Complete Project] Mutation error:', error);
+            toast.error(`Failed to complete project: ${error.message}`);
+        },
+    });
+
+    // Delete Project Mutation - MUST BE BEFORE EARLY RETURNS
+    const deleteProjectMutation = useMutation({
+        mutationFn: deleteProject,
+        onSuccess: () => {
+            console.log('[Delete Project] Mutation success');
+            toast.success('Project deleted successfully! Budget refunded to your wallet.');
+            
+            // Invalidate queries
+            if (user?.userId) {
+                queryClient.invalidateQueries({
+                    queryKey: ['clientProjects', user.userId],
+                });
+                queryClient.invalidateQueries({
+                    queryKey: ['clientProfile', user.userId],
+                });
+            }
+            
+            // Navigate back to dashboard
+            navigation.goBack();
+        },
+        onError: (error: Error) => {
+            console.error('[Delete Project] Mutation error:', error);
+            toast.error(`Failed to delete project: ${error.message}`);
+        },
+    });
+
+    // Realtime subscription for hired freelancers and invitation changes
+    useEffect(() => {
+        if (!projectId) return;
+
+        console.log('[ProjectDetails] Setting up realtime subscription for project freelancers:', projectId);
+
+        const channel = supabaseClient
+            .channel(`project_updates_${projectId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'project_and_freelancer_link',
+                    filter: `project=eq.${projectId}`,
+                },
+                (payload) => {
+                    console.log('[ProjectDetails] New freelancer hired:', payload);
+                    // Invalidate project query to refetch with new freelancer
+                    queryClient.invalidateQueries({
+                        queryKey: ['project', projectId],
+                    });
+                }
+            )
+            .on(
+                'postgres_changes',
+                {
+                    event: 'DELETE',
+                    schema: 'public',
+                    table: 'invitations',
+                    filter: `project=eq.${projectId}`,
+                },
+                (payload) => {
+                    console.log('[ProjectDetails] Invitation deleted (accepted or rejected):', payload);
+                    // Invalidate invitations query to update the list
+                    queryClient.invalidateQueries({
+                        queryKey: ['projectInvitations', projectId],
+                    });
+                }
+            )
+            .subscribe((status) => {
+                console.log('[ProjectDetails] Subscription status:', status);
+            });
+
+        // Cleanup function
+        return () => {
+            console.log('[ProjectDetails] Cleaning up realtime subscription');
+            supabaseClient.removeChannel(channel);
+        };
+    }, [projectId, queryClient]);
+
+    // Early returns AFTER all hooks
     if (isLoading) {
         return <Spinner fullScreen />;
     }
@@ -86,6 +206,54 @@ export default function ProjectDetailsScreen({ route, navigation }: Props) {
         year: 'numeric',
     });
 
+    const handleCompleteProject = () => {
+        console.log('[Complete Project] Button clicked, projectId:', projectId);
+        console.log('[Complete Project] isProjectCompleted:', isProjectCompleted);
+        console.log('[Complete Project] Milestones count:', milestones?.length);
+        
+        // TEMPORARY: Call API directly without alert for testing
+        console.log('[Complete Project] Calling mutation directly (no alert)...');
+        completeProjectMutation.mutate({ projectId });
+    };
+
+    const handleDeleteProject = () => {
+        Alert.alert(
+            'Delete Project',
+            'Are you sure you want to delete this project? The budget will be refunded to your wallet. This action cannot be undone.',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: () => {
+                        console.log('[Delete Project] User confirmed, calling mutation...');
+                        deleteProjectMutation.mutate({ 
+                            projectId, 
+                            clientId: user?.userId || '' 
+                        });
+                    },
+                },
+            ]
+        );
+    };
+
+    const isProjectCompleted = project.status === 'COMPLETED';
+    const isProjectDisputed = project.status === 'DISPUTED';
+    const isProjectDraft = project.status === 'DRAFT';
+    
+    // Debug logging - only when milestones tab is active
+    if (activeTab === 'milestones') {
+        console.log('============= PROJECT COMPLETION DEBUG =============');
+        console.log('[ProjectDetails] Project ID:', projectId);
+        console.log('[ProjectDetails] Project status:', project.status);
+        console.log('[ProjectDetails] isProjectCompleted:', isProjectCompleted);
+        console.log('[ProjectDetails] Total Milestones:', milestones?.length);
+        console.log('[ProjectDetails] Completed Milestones:', milestones?.filter(m => m.status === 'COMPLETED').length);
+        console.log('[ProjectDetails] All milestone statuses:', milestones?.map(m => m.status).join(', '));
+        console.log('[ProjectDetails] Should show complete button:', !isProjectCompleted && milestones && milestones.length > 0);
+        console.log('====================================================');
+    }
+
     return (
         <View style={styles.container}>
             <ScrollView showsVerticalScrollIndicator={false}>
@@ -121,9 +289,12 @@ export default function ProjectDetailsScreen({ route, navigation }: Props) {
                                 <View style={styles.statIconContainer}>
                                     <Ionicons name="wallet-outline" size={20} color="#0532A9" />
                                 </View>
-                                <View>
+                                <View style={{ flex: 1 }}>
                                     <Text style={styles.statLabel}>Budget</Text>
-                                    <Text style={styles.statValue}>${project.budget.toLocaleString()}</Text>
+                                    <Text style={styles.statValue}>${project.budget?.toLocaleString() || '0'}</Text>
+                                    <Text style={[styles.statLabel, { fontSize: 10, marginTop: 2 }]}>
+                                        Original: ${project.original_budget?.toLocaleString() || '0'}
+                                    </Text>
                                 </View>
                             </View>
                             
@@ -143,6 +314,25 @@ export default function ProjectDetailsScreen({ route, navigation }: Props) {
                                 <Ionicons name="chevron-forward" size={16} color="#9CA3AF" style={{marginLeft: 4}} />
                             </Pressable>
                         </View>
+
+                        {/* Project Chat Button - Only show if project has freelancers */}
+                        {project.project_and_freelancer_link.length > 0 && (
+                            <Pressable 
+                                style={styles.chatButton}
+                                onPress={() => navigation.navigate('ProjectChat', { projectId })}
+                            >
+                                <LinearGradient
+                                    colors={['#FFFFFF', '#EFF6FF']}
+                                    style={styles.chatButtonGradient}
+                                    start={{ x: 0, y: 0 }}
+                                    end={{ x: 1, y: 0 }}
+                                >
+                                    <Ionicons name="chatbubbles" size={20} color="#0532A9" />
+                                    <Text style={[styles.chatButtonText, { color: '#0532A9' }]}>Open Project Chat</Text>
+                                    <Ionicons name="chevron-forward" size={16} color="#0532A9" />
+                                </LinearGradient>
+                            </Pressable>
+                        )}
                     </View>
                 </LinearGradient>
 
@@ -259,6 +449,9 @@ export default function ProjectDetailsScreen({ route, navigation }: Props) {
                                                 navigation={navigation}
                                                 user={user}
                                                 showInviteButton={false}
+                                                showReviewButton={true}
+                                                projectId={projectId}
+                                                projectTitle={project.title}
                                             />
                                         ))}
                                     </View>
@@ -275,6 +468,33 @@ export default function ProjectDetailsScreen({ route, navigation }: Props) {
                                 <Text style={styles.sectionTitle}>Find Talent</Text>
                             </View>
                             
+                            {/* AI Search Button */}
+                            <Pressable
+                                style={styles.aiSearchButton}
+                                onPress={() => {
+                                    console.log('[AI Button] Opening AI modal...');
+                                    setShowAIModal(true);
+                                }}
+                            >
+                                <LinearGradient
+                                    colors={['#8B5CF6', '#6366F1', '#3B82F6']}
+                                    start={{ x: 0, y: 0 }}
+                                    end={{ x: 1, y: 0 }}
+                                    style={styles.aiButtonGradient}
+                                >
+                                    <View style={styles.aiButtonContent}>
+                                        <View style={styles.aiIconContainer}>
+                                            <Ionicons name="sparkles" size={22} color="#FFFFFF" />
+                                        </View>
+                                        <View style={styles.aiButtonTextContainer}>
+                                            <Text style={styles.aiButtonTitle}>Search with AI</Text>
+                                            <Text style={styles.aiButtonSubtitle}>Get smart recommendations</Text>
+                                        </View>
+                                        <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
+                                    </View>
+                                </LinearGradient>
+                            </Pressable>
+                            
                             {freelancersLoading || invitationsLoading ? (
                                 <Spinner />
                             ) : availableFreelancers.length === 0 ? (
@@ -290,7 +510,7 @@ export default function ProjectDetailsScreen({ route, navigation }: Props) {
                                             freelancer={freelancer}
                                             navigation={navigation}
                                             user={user}
-                                            showInviteButton={true}
+                                            showInviteButton={!isProjectCompleted && !isProjectDisputed}
                                             projectId={projectId}
                                             invitationId={invitationMap.get(freelancer.id)}
                                         />
@@ -303,138 +523,538 @@ export default function ProjectDetailsScreen({ route, navigation }: Props) {
                     {/* Milestones Tab */}
                     {activeTab === 'milestones' && (
                         <View style={styles.tabContent}>
-                            {/* Summary Stats */}
-                            {milestones && milestones.length > 0 && (
-                                <View style={styles.milestoneSummaryContainer}>
-                                    <View style={styles.summaryCard}>
-                                        <View style={styles.summaryIconContainer}>
-                                            <Ionicons name="flag" size={20} color="#0532A9" />
-                                        </View>
-                                        <View>
-                                            <Text style={styles.summaryLabel}>Total</Text>
-                                            <Text style={styles.summaryValue}>{milestones.length}</Text>
-                                        </View>
+                            {/* Summary Cards */}
+                            <View style={styles.milestonesSummaryContainer}>
+                                <View style={styles.summaryCard}>
+                                    <View style={[styles.summaryIconContainer, { backgroundColor: '#DBEAFE' }]}>
+                                        <Ionicons name="file-tray-full" size={20} color="#2563EB" />
                                     </View>
-                                    <View style={styles.summaryCard}>
-                                        <View style={[styles.summaryIconContainer, { backgroundColor: '#DBEAFE' }]}>
-                                            <Ionicons name="time" size={20} color="#1E40AF" />
-                                        </View>
-                                        <View>
-                                            <Text style={styles.summaryLabel}>Active</Text>
-                                            <Text style={styles.summaryValue}>
-                                                {milestones.filter(m => m.status === 'IN_PROGRESS' || m.status === 'SUBMITTED').length}
-                                            </Text>
-                                        </View>
-                                    </View>
-                                    <View style={styles.summaryCard}>
-                                        <View style={[styles.summaryIconContainer, { backgroundColor: '#ECFDF5' }]}>
-                                            <Ionicons name="checkmark-circle" size={20} color="#059669" />
-                                        </View>
-                                        <View>
-                                            <Text style={styles.summaryLabel}>Done</Text>
-                                            <Text style={styles.summaryValue}>
-                                                {milestones.filter(m => m.status === 'COMPLETED').length}
-                                            </Text>
-                                        </View>
+                                    <View>
+                                        <Text style={styles.summaryValue}>{milestones?.length || 0}</Text>
+                                        <Text style={styles.summaryLabel}>Total</Text>
                                     </View>
                                 </View>
-                            )}
 
-                            <View style={styles.milestoneHeader}>
-                                <View style={styles.sectionHeader}>
-                                    <Ionicons name="layers-outline" size={20} color="#0532A9" />
-                                    <Text style={styles.sectionTitle}>Timeline</Text>
+                                <View style={styles.summaryCard}>
+                                    <View style={[styles.summaryIconContainer, { backgroundColor: '#FEF3C7' }]}>
+                                        <Ionicons name="time" size={20} color="#D97706" />
+                                    </View>
+                                    <View>
+                                        <Text style={styles.summaryValue}>
+                                            {milestones?.filter(m => m.status === 'IN_PROGRESS').length || 0}
+                                        </Text>
+                                        <Text style={styles.summaryLabel}>Active</Text>
+                                    </View>
                                 </View>
-                                {project.project_and_freelancer_link.length > 0 && (
+
+                                <View style={styles.summaryCard}>
+                                    <View style={[styles.summaryIconContainer, { backgroundColor: '#D1FAE5' }]}>
+                                        <Ionicons name="checkmark-circle" size={20} color="#059669" />
+                                    </View>
+                                    <View>
+                                        <Text style={styles.summaryValue}>
+                                            {milestones?.filter(m => m.status === 'COMPLETED').length || 0}
+                                        </Text>
+                                        <Text style={styles.summaryLabel}>Completed</Text>
+                                    </View>
+                                </View>
+                            </View>
+
+                            {/* Action Buttons */}
+                            <View style={styles.actionButtonsContainer}>
+                                {isProjectDisputed && (
+                                    <View style={[styles.completedBadge, { backgroundColor: '#FEF2F2' }]}>
+                                        <Ionicons name="alert-circle" size={24} color="#DC2626" />
+                                        <Text style={[styles.completedBadgeText, { color: '#DC2626' }]}>Project Disputed - Actions Locked</Text>
+                                    </View>
+                                )}
+
+                                {/* Delete Project Button - Only for DRAFT status */}
+                                {isProjectDraft && (
                                     <Button
-                                        title="New Milestone"
-                                        onPress={() => setCreateMilestoneModalVisible(true)}
-                                        size="sm"
-                                        icon="add"
-                                        style={{ backgroundColor: '#0532A9', borderRadius: 20, paddingHorizontal: 12, height: 36, marginTop: -10 }}
-                                        textStyle={{ fontSize: 12, fontWeight: '600' }}
+                                        title="Delete Project"
+                                        onPress={handleDeleteProject}
+                                        loading={deleteProjectMutation.isPending}
+                                        style={styles.deleteProjectButton}
+                                        textStyle={{ fontWeight: '600' }}
                                     />
+                                )}
+
+                                {/* Create Milestone Button */}
+                                {project.project_and_freelancer_link.length > 0 && !isProjectCompleted && !isProjectDisputed && !isProjectDraft && (
+                                    <Button
+                                        title="Create Milestone"
+                                        onPress={() => navigation.navigate('CreateMilestone', { projectId })}
+                                        style={styles.createMilestoneButton}
+                                        textStyle={{ fontWeight: '600' }}
+                                    />
+                                )}
+
+                                {/* Complete Project Button */}
+                                {!isProjectCompleted && !isProjectDisputed && !isProjectDraft && milestones && milestones.length > 0 && (
+                                    <Button
+                                        title="Mark Project as Completed"
+                                        onPress={handleCompleteProject}
+                                        loading={completeProjectMutation.isPending}
+                                        style={styles.completeProjectButton}
+                                        textStyle={{ fontWeight: '600' }}
+                                    />
+                                )}
+
+                                {/* Project Completed Badge */}
+                                {isProjectCompleted && (
+                                    <View style={styles.completedBadge}>
+                                        <Ionicons name="checkmark-circle" size={24} color="#059669" />
+                                        <Text style={styles.completedBadgeText}>Project Completed</Text>
+                                    </View>
                                 )}
                             </View>
 
-                            {project.project_and_freelancer_link.length === 0 ? (
-                                <View style={styles.emptyState}>
-                                    <View style={styles.emptyStateIconContainer}>
-                                        <Ionicons name="people" size={32} color="#9CA3AF" />
-                                    </View>
-                                    <Text style={styles.emptyStateTitle}>Hire Freelancers First</Text>
-                                    <Text style={styles.emptyStateText}>
-                                        You need to hire freelancers before you can create and assign milestones.
-                                    </Text>
-                                    <Button 
-                                        title="Find Freelancers"
-                                        onPress={() => setActiveTab('freelancers')}
-                                        variant="outline"
-                                        style={{ marginTop: 16 }}
-                                    />
-                                </View>
-                            ) : milestonesLoading ? (
+                            {/* Milestones List */}
+                            <View style={styles.sectionHeader}>
+                                <Ionicons name="flag-outline" size={20} color="#0532A9" />
+                                <Text style={styles.sectionTitle}>All Milestones</Text>
+                            </View>
+
+                            {milestonesLoading ? (
                                 <Spinner />
                             ) : !milestones || milestones.length === 0 ? (
                                 <View style={styles.emptyState}>
-                                    <View style={styles.emptyStateIconContainer}>
-                                        <Ionicons name="flag" size={32} color="#9CA3AF" />
-                                    </View>
-                                    <Text style={styles.emptyStateTitle}>No Milestones Yet</Text>
+                                    <Ionicons name="flag-outline" size={48} color="#D1D5DB" />
                                     <Text style={styles.emptyStateText}>
-                                        Break down your project into smaller, manageable milestones to track progress effectively.
+                                        {project.project_and_freelancer_link.length === 0
+                                            ? 'Hire freelancers first to create milestones.'
+                                            : 'No milestones created yet.'}
                                     </Text>
-                                    <Button 
-                                        title="Create First Milestone"
-                                        onPress={() => setCreateMilestoneModalVisible(true)}
-                                        style={{ marginTop: 16 }}
-                                    />
+                                    {project.project_and_freelancer_link.length > 0 && (
+                                        <Pressable onPress={() => navigation.navigate('CreateMilestone', { projectId })}>
+                                            <Text style={styles.emptyStateAction}>Create First Milestone</Text>
+                                        </Pressable>
+                                    )}
                                 </View>
                             ) : (
                                 <View style={styles.milestonesList}>
-                                    {milestones.map((milestone, index) => (
-                                        <View key={milestone.id} style={styles.timelineItem}>
-                                            <View style={styles.timelineLeft}>
-                                                <View style={[
-                                                    styles.timelineDot, 
-                                                    milestone.status === 'COMPLETED' && styles.timelineDotCompleted
-                                                ]}>
-                                                    {milestone.status === 'COMPLETED' && (
-                                                        <Ionicons name="checkmark" size={10} color="#FFF" />
-                                                    )}
+                                    {milestones.map((milestone) => (
+                                        <Pressable
+                                            key={milestone.id}
+                                            style={styles.milestoneCard}
+                                            onPress={() => navigation.navigate('MilestoneDetails', { milestoneId: milestone.id })}
+                                        >
+                                            <View style={styles.milestoneHeader}>
+                                                <View style={styles.milestoneInfo}>
+                                                    <Text style={styles.milestoneTitle} numberOfLines={1}>
+                                                        {milestone.title}
+                                                    </Text>
+                                                    <Text style={styles.milestoneAmount}>${milestone.amount}</Text>
                                                 </View>
-                                                {index !== milestones.length - 1 && <View style={styles.timelineLine} />}
+                                                <View
+                                                    style={[
+                                                        styles.milestoneStatusBadge,
+                                                        milestone.status === 'LOCKED' && { backgroundColor: '#FEE2E2', borderColor: '#FCA5A5' },
+                                                        milestone.status === 'IN_PROGRESS' && { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' },
+                                                        milestone.status === 'SUBMITTED' && { backgroundColor: '#DBEAFE', borderColor: '#BFDBFE' },
+                                                        milestone.status === 'COMPLETED' && { backgroundColor: '#D1FAE5', borderColor: '#A7F3D0' },
+                                                        milestone.status === 'DISPUTED' && { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
+                                                    ]}
+                                                >
+                                                    <Ionicons 
+                                                        name={
+                                                            milestone.status === 'LOCKED' ? 'lock-closed' :
+                                                            milestone.status === 'IN_PROGRESS' ? 'time' :
+                                                            milestone.status === 'SUBMITTED' ? 'cloud-upload' :
+                                                            milestone.status === 'COMPLETED' ? 'checkmark-circle' :
+                                                            'alert-circle'
+                                                        }
+                                                        size={12}
+                                                        color={
+                                                            milestone.status === 'LOCKED' ? '#DC2626' :
+                                                            milestone.status === 'IN_PROGRESS' ? '#D97706' :
+                                                            milestone.status === 'SUBMITTED' ? '#2563EB' :
+                                                            milestone.status === 'COMPLETED' ? '#059669' :
+                                                            '#DC2626'
+                                                        }
+                                                        style={{ marginRight: 4 }}
+                                                    />
+                                                    <Text
+                                                        style={[
+                                                            styles.milestoneStatusText,
+                                                            milestone.status === 'LOCKED' && { color: '#DC2626' },
+                                                            milestone.status === 'IN_PROGRESS' && { color: '#D97706' },
+                                                            milestone.status === 'SUBMITTED' && { color: '#2563EB' },
+                                                            milestone.status === 'COMPLETED' && { color: '#059669' },
+                                                            milestone.status === 'DISPUTED' && { color: '#DC2626' },
+                                                        ]}
+                                                    >
+                                                        {milestone.status === 'LOCKED' && 'LOCKED'}
+                                                        {milestone.status === 'IN_PROGRESS' && 'IN PROGRESS'}
+                                                        {milestone.status === 'SUBMITTED' && 'SUBMITTED'}
+                                                        {milestone.status === 'COMPLETED' && 'COMPLETED'}
+                                                        {milestone.status === 'DISPUTED' && 'DISPUTED'}
+                                                    </Text>
+                                                </View>
                                             </View>
-                                            <View style={styles.timelineContent}>
-                                                <MilestoneCard
-                                                    milestone={milestone}
-                                                    navigation={navigation}
-                                                />
+                                            <View style={styles.milestoneFooter}>
+                                                <View style={styles.freelancerInfo}>
+                                                    <Avatar
+                                                        source={milestone.freelancer?.profile_pic}
+                                                        fallback={milestone.freelancer?.username || 'N/A'}
+                                                        size={24}
+                                                    />
+                                                    <Text style={styles.freelancerName}>{milestone.freelancer?.username || 'Unassigned'}</Text>
+                                                </View>
+                                                <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
                                             </View>
-                                        </View>
+                                        </Pressable>
                                     ))}
                                 </View>
                             )}
                         </View>
                     )}
-                    
-                    {/* Create Milestone Modal */}
-                    {createMilestoneModalVisible && (
-                        <CreateMilestoneModal
-                            visible={createMilestoneModalVisible}
-                            onClose={() => setCreateMilestoneModalVisible(false)}
-                            freelancers={project.project_and_freelancer_link}
-                            projectId={projectId}
-                            projectTitle={project.title}
-                            clientId={user!.userId}
-                            clientUsername={user!.username}
-                            queryClient={queryClient}
-                        />
-                    )}
                 </View>
                 <View style={{ height: 40 }} />
             </ScrollView>
+
+            {/* AI Recommendation Modal */}
+            {showAIModal && project && (
+                <AIRecommendationModal
+                    visible={showAIModal}
+                    onClose={() => {
+                        setShowAIModal(false);
+                        setRecommendedFreelancers([]);
+                        setIsSearching(false);
+                        setNumRecommendations('5');
+                    }}
+                    projectSkills={Array.isArray(project.skills) ? project.skills : []}
+                    numRecommendations={numRecommendations}
+                    setNumRecommendations={setNumRecommendations}
+                    isSearching={isSearching}
+                    recommendedFreelancers={recommendedFreelancers}
+                    onSearch={async () => {
+                        const numValue = parseInt(numRecommendations);
+                        if (!numRecommendations || isNaN(numValue) || numValue < 1) {
+                            toast.error('Please enter a valid number (minimum 1)');
+                            return;
+                        }
+
+                        try {
+                            setIsSearching(true);
+                            setRecommendedFreelancers([]);
+                            
+                            const skills = project?.skills || [];
+                            if (skills.length === 0) {
+                                toast.warning('No skills defined for this project');
+                                setIsSearching(false);
+                                return;
+                            }
+
+                            console.log('[AI Search] Starting with skills:', skills, 'count:', numValue);
+                            
+                            const response = await getFreelancerRecommendations(skills, numValue);
+                            
+                            console.log('[AI Search] Response:', response);
+                            
+                            setRecommendedFreelancers(response.recommended_freelancers || []);
+                            
+                            if (!response.recommended_freelancers || response.recommended_freelancers.length === 0) {
+                                toast.info('No matching freelancers found');
+                            } else {
+                                toast.success(`Found ${response.recommended_freelancers.length} freelancer${response.recommended_freelancers.length > 1 ? 's' : ''}!`);
+                            }
+                        } catch (error: any) {
+                            console.error('[AI Search] Error:', error);
+                            const errorMessage = error?.message || 'Failed to get recommendations';
+                            toast.error(errorMessage);
+                        } finally {
+                            setIsSearching(false);
+                        }
+                    }}
+                    navigation={navigation}
+                    user={user}
+                    projectId={projectId}
+                />
+            )}
         </View>
+    );
+}
+
+// AI Recommendation Modal Component
+type AIRecommendationModalProps = {
+    visible: boolean;
+    onClose: () => void;
+    projectSkills: string[];
+    numRecommendations: string;
+    setNumRecommendations: (val: string) => void;
+    isSearching: boolean;
+    recommendedFreelancers: RecommendedFreelancer[];
+    onSearch: () => void;
+    navigation: any;
+    user: any;
+    projectId: string;
+};
+
+function AIRecommendationModal({
+    visible,
+    onClose,
+    projectSkills,
+    numRecommendations,
+    setNumRecommendations,
+    isSearching,
+    recommendedFreelancers,
+    onSearch,
+    navigation,
+    user,
+    projectId,
+}: AIRecommendationModalProps) {
+    const pulseAnim = React.useRef(new Animated.Value(1)).current;
+    const rotateAnim = React.useRef(new Animated.Value(0)).current;
+
+    React.useEffect(() => {
+        if (isSearching) {
+            // Pulse animation
+            const pulseAnimation = Animated.loop(
+                Animated.sequence([
+                    Animated.timing(pulseAnim, {
+                        toValue: 1.2,
+                        duration: 1000,
+                        useNativeDriver: true,
+                    }),
+                    Animated.timing(pulseAnim, {
+                        toValue: 1,
+                        duration: 1000,
+                        useNativeDriver: true,
+                    }),
+                ])
+            );
+            pulseAnimation.start();
+
+            // Rotation animation
+            const rotateAnimation = Animated.loop(
+                Animated.timing(rotateAnim, {
+                    toValue: 1,
+                    duration: 3000,
+                    useNativeDriver: true,
+                })
+            );
+            rotateAnimation.start();
+
+            return () => {
+                pulseAnimation.stop();
+                rotateAnimation.stop();
+            };
+        } else {
+            pulseAnim.setValue(1);
+            rotateAnim.setValue(0);
+        }
+    }, [isSearching, pulseAnim, rotateAnim]);
+
+    const spin = rotateAnim.interpolate({
+        inputRange: [0, 1],
+        outputRange: ['0deg', '360deg'],
+    });
+
+    return (
+        <Modal
+            visible={visible}
+            animationType="slide"
+            transparent={true}
+            onRequestClose={onClose}
+            statusBarTranslucent
+        >
+            <KeyboardAvoidingView 
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                style={{ flex: 1 }}
+            >
+                <Pressable style={styles.modalOverlay} onPress={onClose}>
+                    <Pressable style={styles.aiModalContainer} onPress={(e) => e.stopPropagation()}>
+                        {/* Header */}
+                        <LinearGradient
+                            colors={['#8B5CF6', '#6366F1']}
+                            style={styles.aiModalHeader}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 0 }}
+                        >
+                            <View style={styles.aiModalHeaderContent}>
+                                <View style={styles.aiModalTitleRow}>
+                                    <Ionicons name="sparkles" size={28} color="#FFFFFF" />
+                                    <Text style={styles.aiModalTitle}>AI Recommendation</Text>
+                                </View>
+                                <Pressable onPress={onClose} style={styles.closeButton}>
+                                    <Ionicons name="close" size={28} color="#FFFFFF" />
+                                </Pressable>
+                            </View>
+                            <Text style={styles.aiModalSubtitle}>
+                                Get smart freelancer recommendations powered by AI
+                            </Text>
+                        </LinearGradient>
+
+                        <ScrollView 
+                            style={styles.aiModalContent} 
+                            contentContainerStyle={styles.aiModalContentContainer}
+                            showsVerticalScrollIndicator={false}
+                            nestedScrollEnabled={true}
+                            keyboardShouldPersistTaps="handled"
+                        >
+                        {/* Project Skills Display */}
+                        <View style={styles.skillsSection}>
+                            <Text style={styles.skillsSectionTitle}>Project Required Skills</Text>
+                            <View style={styles.skillsContainer}>
+                                {projectSkills && projectSkills.length > 0 ? (
+                                    projectSkills.map((skill, index) => (
+                                        <View key={`skill-${index}-${skill}`} style={styles.skillChip}>
+                                            <Ionicons name="checkmark-circle" size={16} color="#8B5CF6" />
+                                            <Text style={styles.skillChipText}>{skill}</Text>
+                                        </View>
+                                    ))
+                                ) : (
+                                    <Text style={styles.noSkillsText}>No skills specified for this project</Text>
+                                )}
+                            </View>
+                        </View>
+
+                        {/* Number Input */}
+                        <View style={styles.inputSection}>
+                            <Text style={styles.inputLabel}>
+                                Number of Freelancers
+                                <Text style={styles.required}> *</Text>
+                            </Text>
+                            <TextInput
+                                style={styles.numberInput}
+                                value={numRecommendations}
+                                onChangeText={setNumRecommendations}
+                                keyboardType="number-pad"
+                                placeholder="Enter number (e.g., 5)"
+                                placeholderTextColor="#94A3B8"
+                                editable={!isSearching}
+                            />
+                        </View>
+
+                        {/* Search Button */}
+                        <Pressable
+                            style={[styles.searchButton, isSearching && styles.searchButtonDisabled]}
+                            onPress={onSearch}
+                            disabled={isSearching}
+                        >
+                            <LinearGradient
+                                colors={isSearching ? ['#94A3B8', '#64748B'] : ['#8B5CF6', '#6366F1']}
+                                style={styles.searchButtonGradient}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 0 }}
+                            >
+                                {isSearching ? (
+                                    <ActivityIndicator color="#FFFFFF" size="small" />
+                                ) : (
+                                    <>
+                                        <Ionicons name="search" size={20} color="#FFFFFF" />
+                                        <Text style={styles.searchButtonText}>Search Now</Text>
+                                    </>
+                                )}
+                            </LinearGradient>
+                        </Pressable>
+
+                        {/* AI Animation */}
+                        {isSearching && (
+                            <View style={styles.aiAnimationContainer}>
+                                <Animated.View
+                                    style={[
+                                        styles.aiAnimationCircle,
+                                        {
+                                            transform: [{ scale: pulseAnim }, { rotate: spin }],
+                                        },
+                                    ]}
+                                >
+                                    <LinearGradient
+                                        colors={['#8B5CF6', '#6366F1', '#3B82F6']}
+                                        style={styles.aiGradientCircle}
+                                    >
+                                        <Ionicons name="sparkles" size={48} color="#FFFFFF" />
+                                    </LinearGradient>
+                                </Animated.View>
+                                <Text style={styles.aiAnimationText}>Analyzing skills & matching freelancers...</Text>
+                                <View style={styles.loadingDotsContainer}>
+                                    <View style={[styles.loadingDot, styles.loadingDot1]} />
+                                    <View style={[styles.loadingDot, styles.loadingDot2]} />
+                                    <View style={[styles.loadingDot, styles.loadingDot3]} />
+                                </View>
+                            </View>
+                        )}
+
+                        {/* Results */}
+                        {!isSearching && recommendedFreelancers.length > 0 && (
+                            <View style={styles.resultsSection}>
+                                <View style={styles.resultHeader}>
+                                    <Ionicons name="checkmark-circle" size={24} color="#10B981" />
+                                    <Text style={styles.resultHeaderText}>
+                                        Found {recommendedFreelancers.length} Recommended Freelancers
+                                    </Text>
+                                </View>
+
+                                {recommendedFreelancers.map((freelancer, index) => (
+                                    <Pressable
+                                        key={`rec-${freelancer.id}-${index}`}
+                                        style={styles.recommendedCard}
+                                        onPress={() => {
+                                            onClose();
+                                            navigation.navigate('FreelancerDetails', { freelancerId: freelancer.id });
+                                        }}
+                                    >
+                                        <View style={styles.rankBadge}>
+                                            <Text style={styles.rankText}>#{index + 1}</Text>
+                                        </View>
+                                        
+                                        <View style={styles.recommendedCardContent}>
+                                            <Avatar
+                                                source={freelancer.profile_pic || undefined}
+                                                fallback={freelancer.username}
+                                                size={56}
+                                            />
+                                            <View style={styles.recommendedInfo}>
+                                                <Text style={styles.recommendedName} numberOfLines={1}>
+                                                    {freelancer.username}
+                                                </Text>
+                                                <Text style={styles.recommendedHeadline} numberOfLines={1}>
+                                                    {freelancer.headline || 'Professional Freelancer'}
+                                                </Text>
+                                                <View style={styles.recommendedStats}>
+                                                    <View style={styles.statItem}>
+                                                        <Ionicons name="star" size={14} color="#F59E0B" />
+                                                        <Text style={styles.statText}>
+                                                            {freelancer.rating?.toFixed(1) || 'N/A'}
+                                                        </Text>
+                                                    </View>
+                                                    <View style={styles.statItem}>
+                                                        <Ionicons name="ribbon" size={14} color="#8B5CF6" />
+                                                        <Text style={styles.statText}>
+                                                            {(freelancer.similarity_score * 100).toFixed(0)}% Match
+                                                        </Text>
+                                                    </View>
+                                                </View>
+                                            </View>
+                                        </View>
+
+                                        {/* Skills */}
+                                        {freelancer.skills && Array.isArray(freelancer.skills) && freelancer.skills.length > 0 && (
+                                            <View style={styles.recommendedSkills}>
+                                                {freelancer.skills.slice(0, 3).map((skill, idx) => (
+                                                    <View key={`${freelancer.id}-skill-${idx}-${skill}`} style={styles.miniSkillChip}>
+                                                        <Text style={styles.miniSkillText}>{skill}</Text>
+                                                    </View>
+                                                ))}
+                                                {freelancer.skills.length > 3 && (
+                                                    <Text style={styles.moreSkillsText}>+{freelancer.skills.length - 3} more</Text>
+                                                )}
+                                            </View>
+                                        )}
+                                    </Pressable>
+                                ))}
+                            </View>
+                        )}
+
+                        <View style={{ height: 20 }} />
+                    </ScrollView>
+                    </Pressable>
+                </Pressable>
+            </KeyboardAvoidingView>
+        </Modal>
     );
 }
 
@@ -446,10 +1066,20 @@ type FreelancerCardProps = {
     showInviteButton: boolean;
     projectId?: string;
     invitationId?: string;
+    showReviewButton?: boolean;
+    projectTitle?: string;
 };
 
-function FreelancerCard({ freelancer, navigation, user, showInviteButton, projectId, invitationId }: FreelancerCardProps) {
+function FreelancerCard({ freelancer, navigation, user, showInviteButton, projectId, invitationId, showReviewButton = false, projectTitle = '' }: FreelancerCardProps) {
     const queryClient = useQueryClient();
+    const [showReviewModal, setShowReviewModal] = useState(false);
+
+    // Fetch average rating for this freelancer
+    const { data: ratingData } = useQuery({
+        queryKey: ['freelancerRating', freelancer.id],
+        queryFn: () => getFreelancerAverageRating(freelancer.id),
+        staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+    });
 
     const { mutate: sendInvite, isPending: invitePending } = useMutation({
         mutationFn: createInvitation,
@@ -484,27 +1114,35 @@ function FreelancerCard({ freelancer, navigation, user, showInviteButton, projec
     });
 
     const handleInvite = () => {
-        if (!projectId) return;
-        Alert.alert(
-            'Invite Freelancer',
-            `Send an invitation to ${freelancer.username}?`,
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Confirm',
-                    onPress: () => sendInvite({
-                        projectId: projectId,
-                        clientId: user?.userId || '',
-                        freelancerId: freelancer.id,
-                        clientUsername: user?.username || 'Client',
-                    }),
-                },
-            ]
-        );
+        console.log('[Invite] Button clicked for freelancer:', freelancer.username);
+        if (!projectId) {
+            console.log('[Invite] No projectId found');
+            return;
+        }
+        
+        // Call invite directly for now (remove alert temporarily for testing)
+        console.log('[Invite] Sending invite...');
+        sendInvite({
+            projectId: projectId,
+            clientId: user?.userId || '',
+            freelancerId: freelancer.id,
+            clientUsername: user?.username || 'Client',
+        });
+        
     };
 
     const handleCancelInvite = () => {
-        if (!invitationId) return;
+        console.log('[Cancel Invite] Button clicked for freelancer:', freelancer.username);
+        if (!invitationId) {
+            console.log('[Cancel Invite] No invitationId found');
+            return;
+        }
+        
+        // Call cancel directly for now (remove alert temporarily for testing)
+        console.log('[Cancel Invite] Cancelling invitation...');
+        cancelInvite(invitationId);
+        
+        /* ORIGINAL WITH ALERT:
         Alert.alert(
             'Cancel Invitation',
             `Cancel invitation for ${freelancer.username}?`,
@@ -517,6 +1155,7 @@ function FreelancerCard({ freelancer, navigation, user, showInviteButton, projec
                 },
             ]
         );
+        */
     };
 
     // Logic to calculate visible skills - match logic in ViewFreelancersScreen
@@ -567,7 +1206,11 @@ function FreelancerCard({ freelancer, navigation, user, showInviteButton, projec
                                 <Text style={styles.name} numberOfLines={1}>{freelancer.username}</Text>
                                 <View style={styles.ratingBadge}>
                                     <Ionicons name="star" size={11} color="#F59E0B" />
-                                    <Text style={styles.ratingText}>5.0</Text>
+                                    <Text style={styles.ratingText}>
+                                        {ratingData && ratingData.reviewCount > 0 
+                                            ? ratingData.averageRating.toFixed(1) 
+                                            : 'N/A'}
+                                    </Text>
                                 </View>
                             </View>
                             <Text style={styles.role}>Professional Freelancer</Text>
@@ -626,7 +1269,7 @@ function FreelancerCard({ freelancer, navigation, user, showInviteButton, projec
                             }}
                             variant="outline"
                             size="sm"
-                            style={[styles.actionBtn, { flex: 1 }]}
+                            style={{ ...styles.actionBtn, flex: 1 }}
                             textStyle={{ fontSize: 13, textAlign: 'center', lineHeight: 20, paddingBottom: 2 }}
                         />
 
@@ -639,7 +1282,7 @@ function FreelancerCard({ freelancer, navigation, user, showInviteButton, projec
                                     disabled={cancelPending}
                                     variant="outline"
                                     size="sm"
-                                    style={[styles.actionBtn, { borderColor: '#DC2626', flex: 1 }]}
+                                    style={{ ...styles.actionBtn, borderColor: '#DC2626', flex: 1 }}
                                     textStyle={{ color: '#DC2626', fontSize: 13, textAlign: 'center', lineHeight: 20, paddingBottom: 2 }}
                                 />
                             ) : (
@@ -649,303 +1292,42 @@ function FreelancerCard({ freelancer, navigation, user, showInviteButton, projec
                                     loading={invitePending}
                                     disabled={invitePending}
                                     size="sm"
-                                    style={[styles.actionBtn, { flex: 1 }]}
+                                    style={{ ...styles.actionBtn, flex: 1 }}
                                     textStyle={{ fontSize: 13, textAlign: 'center', lineHeight: 20, paddingBottom: 2 }}
                                 />
                             )
                         )}
-            </View>
-                </View>
-            </View>
-        </Pressable>
-    );
-}
 
-// Milestone Card Component
-type MilestoneCardProps = {
-    milestone: any;
-    navigation: any;
-};
-
-function MilestoneCard({ milestone, navigation }: MilestoneCardProps) {
-    const getStatusColor = (status: MilestoneStatusType) => {
-        switch (status) {
-            case 'LOCKED':
-                return { bg: '#FEE2E2', text: '#991B1B' };
-            case 'IN_PROGRESS':
-                return { bg: '#DBEAFE', text: '#1E40AF' };
-            case 'SUBMITTED':
-                return { bg: '#FEF3C7', text: '#92400E' };
-            case 'COMPLETED':
-                return { bg: '#D1FAE5', text: '#065F46' };
-            default:
-                return { bg: '#F3F4F6', text: '#374151' };
-        }
-    };
-
-    const statusColors = getStatusColor(milestone.status);
-
-    return (
-        <Pressable
-            style={styles.milestoneCard}
-            onPress={() => navigation.navigate('MilestoneDetails', { milestoneId: milestone.id })}
-        >
-            <View style={styles.milestoneHeaderRow}>
-                <Text style={styles.milestoneTitle} numberOfLines={1}>
-                    {milestone.title}
-                </Text>
-                <View style={[styles.milestoneStatusBadge, { backgroundColor: statusColors.bg }]}>
-                    <Text style={[styles.milestoneStatusText, { color: statusColors.text }]}>
-                        {milestone.status.replace('_', ' ')}
-                    </Text>
-                </View>
-            </View>
-
-            <Text style={styles.milestoneDescription} numberOfLines={2}>
-                {milestone.description}
-            </Text>
-
-            <View style={styles.milestoneDetailsRow}>
-                <View style={styles.milestoneMetaItem}>
-                    <Ionicons name="cash-outline" size={16} color="#0532A9" />
-                    <Text style={styles.milestoneAmountText}>Rs {milestone.amount.toLocaleString()}</Text>
-                </View>
-                
-                <View style={styles.milestoneMetaItem}>
-                    <Image source={{ uri: milestone.freelancer.profile_pic }} style={styles.milestoneAvatar} />
-                    <Text style={styles.milestoneFreelancerName} numberOfLines={1}>
-                        {milestone.freelancer.username}
-                    </Text>
-                </View>
-
-                <View style={styles.milestoneArrow}>
-                    <Ionicons name="chevron-forward" size={16} color="#6B7280" />
-                </View>
-            </View>
-        </Pressable>
-    );
-}
-
-// Create Milestone Modal Component
-type CreateMilestoneModalProps = {
-    visible: boolean;
-    onClose: () => void;
-    freelancers: any[];
-    projectId: string;
-    projectTitle: string;
-    clientId: string;
-    clientUsername: string;
-    queryClient: any;
-};
-
-function CreateMilestoneModal({
-    visible,
-    onClose,
-    freelancers,
-    projectId,
-    projectTitle,
-    clientId,
-    clientUsername,
-    queryClient,
-}: CreateMilestoneModalProps) {
-    const [title, setTitle] = useState('');
-    const [description, setDescription] = useState('');
-    const [amount, setAmount] = useState('');
-    const [selectedFreelancerId, setSelectedFreelancerId] = useState('');
-    const [showFreelancerPicker, setShowFreelancerPicker] = useState(false);
-
-    const { mutate, isPending } = useMutation({
-        mutationFn: createMilestone,
-        onSuccess: () => {
-            toast.success('Milestone created successfully');
-            queryClient.invalidateQueries({
-                queryKey: ['get-all-milestones-for-project', projectId],
-            });
-            onClose();
-            setTitle('');
-            setDescription('');
-            setAmount('');
-            setSelectedFreelancerId('');
-        },
-        onError: (error: Error) => {
-            toast.error(`Failed to create milestone: ${error.message}`);
-        },
-    });
-
-    const handleCreate = () => {
-        if (!title.trim()) {
-            toast.error('Milestone title is required');
-            return;
-        }
-        if (!description.trim()) {
-            toast.error('Milestone description is required');
-            return;
-        }
-        if (!selectedFreelancerId) {
-            toast.error('Please select a freelancer');
-            return;
-        }
-        const amountNum = parseFloat(amount);
-        if (isNaN(amountNum) || amountNum <= 0) {
-            toast.error('Please enter a valid amount greater than 0');
-            return;
-        }
-
-        mutate({
-            title: title.trim(),
-            amount: amountNum,
-            clientId,
-            description: description.trim(),
-            freelancerId: selectedFreelancerId,
-            projectId,
-            clientUsername,
-            projectTitle,
-        });
-    };
-
-    const selectedFreelancer = freelancers.find((f) => f.freelancer.id === selectedFreelancerId);
-
-    return (
-        <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-            <View style={styles.modalOverlay}>
-                <View style={styles.modalContainer}>
-                    <View style={styles.modalHeader}>
-                        <Text style={styles.modalTitle}>Create Milestone</Text>
-                        <Pressable onPress={onClose} style={styles.modalCloseButton}>
-                            <Ionicons name="close" size={24} color="#6B7280" />
-                        </Pressable>
-                    </View>
-
-                    <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
-                        <Text style={styles.modalDescription}>
-                            Create a milestone for your project. Assign it to a freelancer and track progress.
-                        </Text>
-
-                        <View style={styles.modalInputGroup}>
-                            <Text style={styles.modalLabel}>Title *</Text>
-                            <TextInput
-                                style={styles.modalInput}
-                                placeholder="e.g. Add to Cart API"
-                                value={title}
-                                onChangeText={setTitle}
-                                placeholderTextColor="#9CA3AF"
-                            />
-                        </View>
-
-                        <View style={styles.modalInputGroup}>
-                            <Text style={styles.modalLabel}>Description *</Text>
-                            <TextInput
-                                style={[styles.modalInput, styles.modalTextArea]}
-                                placeholder="Describe your milestone..."
-                                value={description}
-                                onChangeText={setDescription}
-                                multiline
-                                numberOfLines={4}
-                                textAlignVertical="top"
-                                placeholderTextColor="#9CA3AF"
-                            />
-                        </View>
-
-                        <View style={styles.modalInputGroup}>
-                            <Text style={styles.modalLabel}>Pick Freelancer *</Text>
-                            <Pressable
-                                style={styles.modalPickerButton}
-                                onPress={() => setShowFreelancerPicker(true)}
-                            >
-                                <Text
-                                    style={[
-                                        styles.modalPickerText,
-                                        !selectedFreelancer && styles.modalPickerPlaceholder,
-                                    ]}
-                                >
-                                    {selectedFreelancer
-                                        ? selectedFreelancer.freelancer.username
-                                        : 'Select a freelancer'}
-                                </Text>
-                                <Ionicons name="chevron-down" size={20} color="#6B7280" />
-                            </Pressable>
-                        </View>
-
-                        <View style={styles.modalInputGroup}>
-                            <Text style={styles.modalLabel}>Amount (Rs) *</Text>
-                            <TextInput
-                                style={styles.modalInput}
-                                placeholder="0"
-                                value={amount}
-                                onChangeText={setAmount}
-                                keyboardType="numeric"
-                                placeholderTextColor="#9CA3AF"
-                            />
-                        </View>
-
-                        <View style={styles.modalButtons}>
+                        {showReviewButton && user?.userId !== freelancer.id && (
                             <Button
-                                title="Cancel"
-                                onPress={onClose}
+                                title="Give Review"
+                                onPress={(e) => { 
+                                    e.stopPropagation(); 
+                                    setShowReviewModal(true); 
+                                }}
                                 variant="outline"
-                                style={{ flex: 1 }}
-                                disabled={isPending}
+                                size="sm"
+                                style={{ ...styles.actionBtn, borderColor: '#3B82F6', flex: 1 }}
+                                textStyle={{ color: '#3B82F6', fontSize: 13, textAlign: 'center', lineHeight: 20, paddingBottom: 2 }}
                             />
-                            <Button
-                                title="Create"
-                                onPress={handleCreate}
-                                style={{ flex: 1 }}
-                                loading={isPending}
-                            />
-                        </View>
-                    </ScrollView>
-
-                    {/* Freelancer Picker Modal */}
-                    <Modal
-                        visible={showFreelancerPicker}
-                        transparent
-                        animationType="fade"
-                        onRequestClose={() => setShowFreelancerPicker(false)}
-                    >
-                        <View style={styles.pickerOverlay}>
-                            <View style={styles.pickerContainer}>
-                                <View style={styles.pickerHeader}>
-                                    <Text style={styles.pickerTitle}>Select Freelancer</Text>
-                                    <Pressable
-                                        onPress={() => setShowFreelancerPicker(false)}
-                                        style={styles.pickerCloseButton}
-                                    >
-                                        <Ionicons name="close" size={24} color="#6B7280" />
-                                    </Pressable>
-                                </View>
-                                <ScrollView>
-                                    {freelancers.map((item) => (
-                                        <Pressable
-                                            key={item.freelancer.id}
-                                            style={[
-                                                styles.pickerOption,
-                                                selectedFreelancerId === item.freelancer.id &&
-                                                    styles.pickerOptionSelected,
-                                            ]}
-                                            onPress={() => {
-                                                setSelectedFreelancerId(item.freelancer.id);
-                                                setShowFreelancerPicker(false);
-                                            }}
-                                        >
-                                            <Image
-                                                source={{ uri: item.freelancer.profile_pic }}
-                                                style={styles.pickerOptionImage}
-                                            />
-                                            <Text style={styles.pickerOptionText}>
-                                                {item.freelancer.username}
-                                            </Text>
-                                            {selectedFreelancerId === item.freelancer.id && (
-                                                <Ionicons name="checkmark-circle" size={24} color="#0532A9" />
-                                            )}
-                                        </Pressable>
-                                    ))}
-                                </ScrollView>
-                            </View>
-                        </View>
-                    </Modal>
+                        )}
+            </View>
                 </View>
             </View>
-        </Modal>
+
+            {/* Review Modal */}
+            {showReviewButton && projectId && user?.userId && (
+                <ReviewModal
+                    visible={showReviewModal}
+                    onClose={() => setShowReviewModal(false)}
+                    freelancerId={freelancer.id}
+                    freelancerName={freelancer.username}
+                    clientId={user.userId}
+                    projectId={projectId}
+                    projectTitle={projectTitle}
+                />
+            )}
+        </Pressable>
     );
 }
 
@@ -1031,10 +1413,6 @@ const styles = StyleSheet.create({
         backgroundColor: '#fff',
         borderRadius: 16,
         padding: 16,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8,
         elevation: 4,
         alignItems: 'center',
     },
@@ -1068,6 +1446,31 @@ const styles = StyleSheet.create({
         backgroundColor: '#E5E7EB',
         marginHorizontal: 8,
     },
+    chatButton: {
+        marginTop: 16,
+        borderRadius: 16,
+        overflow: 'hidden',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+        elevation: 4,
+    },
+    chatButtonGradient: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 14,
+        paddingHorizontal: 20,
+        gap: 10,
+    },
+    chatButtonText: {
+        color: '#fff',
+        fontSize: 16,
+        fontWeight: '600',
+        flex: 1,
+        textAlign: 'center',
+    },
     mainContent: {
         paddingHorizontal: 20,
         paddingTop: 24,
@@ -1087,10 +1490,6 @@ const styles = StyleSheet.create({
     },
     activeTab: {
         backgroundColor: '#fff',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
         elevation: 2,
     },
     tabText: {
@@ -1108,10 +1507,6 @@ const styles = StyleSheet.create({
         backgroundColor: '#fff',
         borderRadius: 20,
         padding: 20,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 8,
         elevation: 2,
     },
     sectionHeader: {
@@ -1359,334 +1754,430 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-    emptyStateSubtext: {
-        fontSize: 13,
-        color: '#9CA3AF',
-        marginTop: 4,
-        textAlign: 'center',
-    },
-    milestoneHeader: {
+    // Milestone Styles
+    milestonesSummaryContainer: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center', // Changed from flex-start to center for better alignment
-        marginBottom: 16,
+        gap: 8,
+        marginBottom: 20,
     },
-    milestonesGrid: {
-        gap: 16,
-    },
-    milestoneCard: {
-        backgroundColor: '#FFFFFF',
+    summaryCard: {
+        flex: 1,
+        backgroundColor: '#fff',
         borderRadius: 16,
-        padding: 16,
+        padding: 12,
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 8,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.05,
         shadowRadius: 8,
         elevation: 2,
-        borderWidth: 1,
-        borderColor: '#F3F4F6',
-        marginBottom: 4,
     },
-    milestoneHeaderRow: {
+    summaryIconContainer: {
+        width: 36,
+        height: 36,
+        borderRadius: 10,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 0,
+    },
+    summaryValue: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: '#111827',
+        textAlign: 'center',
+    },
+    summaryLabel: {
+        fontSize: 11,
+        color: '#6B7280',
+        marginTop: 0,
+        textAlign: 'center',
+    },
+    actionButtonsContainer: {
+        marginBottom: 20,
+    },
+    createMilestoneButton: {
+        backgroundColor: '#0532A9',
+        borderRadius: 12,
+        marginBottom: 12,
+    },
+    completeProjectButton: {
+        backgroundColor: '#059669',
+        borderRadius: 12,
+        marginBottom: 12,
+    },
+    deleteProjectButton: {
+        backgroundColor: '#DC2626',
+        borderRadius: 12,
+        marginBottom: 12,
+    },
+    completedBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#D1FAE5',
+        borderRadius: 12,
+        paddingVertical: 16,
+        paddingHorizontal: 20,
+        gap: 10,
+        marginBottom: 20,
+    },
+    completedBadgeText: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#059669',
+    },
+    milestonesList: {
+        gap: 12,
+    },
+    milestoneCard: {
+        backgroundColor: '#fff',
+        borderRadius: 16,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 8,
+        elevation: 2,
+    },
+    milestoneHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'flex-start',
-        marginBottom: 8,
+        marginBottom: 12,
+    },
+    milestoneInfo: {
+        flex: 1,
+        marginRight: 12,
     },
     milestoneTitle: {
         fontSize: 16,
         fontWeight: '700',
         color: '#111827',
-        flex: 1,
-        marginRight: 8,
+        marginBottom: 4,
     },
-    milestoneStatusBadge: {
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 8,
-    },
-    milestoneStatusText: {
-        fontSize: 10,
-        fontWeight: '700',
-        textTransform: 'uppercase',
-    },
-    milestoneDescription: {
-        fontSize: 14,
-        color: '#6B7280',
-        lineHeight: 20,
-        marginBottom: 12,
-    },
-    milestoneDetailsRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginTop: 4,
-        paddingTop: 12,
-        borderTopWidth: 1,
-        borderTopColor: '#F3F4F6',
-    },
-    milestoneMetaItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-    },
-    milestoneAmountText: {
+    milestoneAmount: {
         fontSize: 14,
         fontWeight: '600',
-        color: '#111827',
+        color: '#059669',
     },
-    milestoneAvatar: {
-        width: 24,
-        height: 24,
-        borderRadius: 12,
+    milestoneStatusBadge: {
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 8,
         borderWidth: 1,
-        borderColor: '#E5E7EB',
+        flexDirection: 'row',
+        alignItems: 'center',
     },
-    milestoneFreelancerName: {
+    milestoneStatusText: {
+        fontSize: 11,
+        fontWeight: '700',
+    },
+    milestoneFooter: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    freelancerInfo: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    freelancerName: {
         fontSize: 13,
-        color: '#4B5563',
+        color: '#6B7280',
         fontWeight: '500',
     },
-    milestoneArrow: {
-        width: 28,
-        height: 28,
-        borderRadius: 14,
-        backgroundColor: '#F3F4F6',
-        alignItems: 'center',
-        justifyContent: 'center',
+    // AI Recommendation Styles
+    aiSearchButton: {
+        marginBottom: 20,
+        borderRadius: 16,
+        overflow: 'hidden',
+        shadowColor: '#8B5CF6',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 6,
     },
-    // New Styles for Timeline Layout
-    milestoneSummaryContainer: {
+    aiButtonGradient: {
+        padding: 18,
+        borderRadius: 16,
+    },
+    aiButtonContent: {
         flexDirection: 'row',
-        gap: 12,
+        alignItems: 'center',
+        gap: 14,
+    },
+    aiIconContainer: {
+        width: 44,
+        height: 44,
+        borderRadius: 12,
+        backgroundColor: 'rgba(255,255,255,0.2)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    aiButtonTextContainer: {
+        flex: 1,
+    },
+    aiButtonTitle: {
+        fontSize: 17,
+        fontWeight: '700',
+        color: '#FFFFFF',
+        marginBottom: 2,
+    },
+    aiButtonSubtitle: {
+        fontSize: 13,
+        color: 'rgba(255,255,255,0.9)',
+        fontWeight: '500',
+    },
+    // Modal Styles
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'flex-end',
+    },
+    aiModalContainer: {
+        backgroundColor: '#fff',
+        borderTopLeftRadius: 30,
+        borderTopRightRadius: 30,
+        height: Dimensions.get('window').height * 0.9,
+        maxHeight: Dimensions.get('window').height * 0.9,
+    },
+    aiModalHeader: {
+        paddingTop: 24,
+        paddingBottom: 20,
+        paddingHorizontal: 20,
+    },
+    aiModalHeaderContent: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
         marginBottom: 8,
     },
-    summaryCard: {
+    aiModalTitleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+    },
+    aiModalTitle: {
+        fontSize: 24,
+        fontWeight: 'bold',
+        color: '#FFFFFF',
+    },
+    closeButton: {
+        padding: 4,
+    },
+    aiModalSubtitle: {
+        fontSize: 14,
+        color: 'rgba(255,255,255,0.9)',
+        marginTop: 4,
+    },
+    aiModalContent: {
         flex: 1,
-        backgroundColor: '#FFFFFF',
-        borderRadius: 12,
-        padding: 12,
+    },
+    aiModalContentContainer: {
+        flexGrow: 1,
+        paddingHorizontal: 20,
+        paddingTop: 20,
+        paddingBottom: 20,
+    },
+    skillsSection: {
+        marginBottom: 24,
+    },
+    skillsSectionTitle: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#111827',
+        marginBottom: 12,
+    },
+    skillChipText: {
+        fontSize: 13,
+        color: '#7C3AED',
+        fontWeight: '600',
+    },
+    noSkillsText: {
+        fontSize: 14,
+        color: '#9CA3AF',
+        fontStyle: 'italic',
+    },
+    inputSection: {
+        marginBottom: 24,
+    },
+    inputLabel: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: '#111827',
+        marginBottom: 8,
+    },
+    required: {
+        color: '#EF4444',
+    },
+    numberInput: {
+        backgroundColor: '#F9FAFB',
         borderWidth: 1,
         borderColor: '#E5E7EB',
+        borderRadius: 12,
+        padding: 14,
+        fontSize: 15,
+        color: '#111827',
+    },
+    searchButton: {
+        borderRadius: 12,
+        overflow: 'hidden',
+        marginBottom: 24,
+    },
+    searchButtonDisabled: {
+        opacity: 0.7,
+    },
+    searchButtonGradient: {
+        paddingVertical: 16,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 10,
+    },
+    searchButtonText: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: '#FFFFFF',
+    },
+    aiAnimationContainer: {
+        alignItems: 'center',
+        paddingVertical: 40,
+    },
+    aiAnimationCircle: {
+        width: 120,
+        height: 120,
+        marginBottom: 24,
+    },
+    aiGradientCircle: {
+        width: 120,
+        height: 120,
+        borderRadius: 60,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    aiAnimationText: {
+        fontSize: 16,
+        color: '#6B7280',
+        fontWeight: '500',
+        marginBottom: 16,
+    },
+    loadingDotsContainer: {
+        flexDirection: 'row',
+        gap: 8,
+    },
+    loadingDot: {
+        width: 10,
+        height: 10,
+        borderRadius: 5,
+        backgroundColor: '#8B5CF6',
+    },
+    loadingDot1: {
+        opacity: 0.3,
+    },
+    loadingDot2: {
+        opacity: 0.6,
+    },
+    loadingDot3: {
+        opacity: 1,
+    },
+    resultsSection: {
+        marginTop: 8,
+    },
+    resultHeader: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 10,
+        marginBottom: 16,
+        backgroundColor: '#ECFDF5',
+        padding: 16,
+        borderRadius: 12,
     },
-    summaryIconContainer: {
-        width: 32,
-        height: 32,
+    resultHeaderText: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: '#059669',
+    },
+    recommendedCard: {
+        backgroundColor: '#fff',
+        borderRadius: 16,
+        padding: 16,
+        marginBottom: 12,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 8,
+        elevation: 2,
+    },
+    rankBadge: {
+        position: 'absolute',
+        top: 12,
+        right: 12,
+        backgroundColor: '#8B5CF6',
+        paddingHorizontal: 10,
+        paddingVertical: 4,
         borderRadius: 8,
-        backgroundColor: '#E0E7FF',
-        alignItems: 'center',
-        justifyContent: 'center',
     },
-    summaryLabel: {
-        fontSize: 11,
-        color: '#6B7280',
-        fontWeight: '500',
+    rankText: {
+        color: '#FFFFFF',
+        fontSize: 12,
+        fontWeight: '700',
     },
-    summaryValue: {
-        fontSize: 15,
+    recommendedCardContent: {
+        flexDirection: 'row',
+        gap: 14,
+        marginBottom: 12,
+    },
+    recommendedInfo: {
+        flex: 1,
+    },
+    recommendedName: {
+        fontSize: 17,
         fontWeight: '700',
         color: '#111827',
+        marginBottom: 4,
     },
-    milestonesList: {
-        paddingLeft: 8,
+    recommendedHeadline: {
+        fontSize: 13,
+        color: '#6B7280',
+        marginBottom: 8,
     },
-    timelineItem: {
+    recommendedStats: {
         flexDirection: 'row',
         gap: 16,
     },
-    timelineLeft: {
-        alignItems: 'center',
-        width: 20,
-    },
-    timelineDot: {
-        width: 14,
-        height: 14,
-        borderRadius: 7,
-        backgroundColor: '#E5E7EB',
-        borderWidth: 2,
-        borderColor: '#FFF',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 10,
-        marginTop: 18,
-    },
-    timelineDotCompleted: {
-        backgroundColor: '#10B981',
-        width: 18,
-        height: 18,
-        borderRadius: 9,
-        marginTop: 16,
-    },
-    timelineLine: {
-        width: 2,
-        flex: 1,
-        backgroundColor: '#E5E7EB',
-        marginTop: -2,
-        marginBottom: -2,
-    },
-    timelineContent: {
-        flex: 1,
-        paddingBottom: 16,
-    },
-    emptyStateIconContainer: {
-        width: 64,
-        height: 64,
-        borderRadius: 32,
-        backgroundColor: '#F3F4F6',
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: 16,
-    },
-    emptyStateTitle: {
-        fontSize: 18,
-        fontWeight: '700',
-        color: '#111827',
-        marginBottom: 8,
-    },
-    modalOverlay: {
-        flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        justifyContent: 'flex-end',
-    },
-    modalContainer: {
-        backgroundColor: '#FFFFFF',
-        borderTopLeftRadius: 24,
-        borderTopRightRadius: 24,
-        maxHeight: '90%',
-    },
-    modalHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: 20,
-        paddingBottom: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: '#F3F4F6',
-    },
-    modalTitle: {
-        fontSize: 20,
-        fontWeight: '700',
-        color: '#111827',
-    },
-    modalCloseButton: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
-        backgroundColor: '#F3F4F6',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    modalContent: {
-        padding: 20,
-    },
-    modalDescription: {
-        fontSize: 14,
+    statText: {
+        fontSize: 13,
         color: '#6B7280',
-        lineHeight: 20,
-        marginBottom: 20,
-    },
-    modalInputGroup: {
-        marginBottom: 20,
-    },
-    modalLabel: {
-        fontSize: 14,
         fontWeight: '600',
-        color: '#374151',
-        marginBottom: 8,
     },
-    modalInput: {
-        backgroundColor: '#F9FAFB',
-        borderWidth: 1,
-        borderColor: '#E5E7EB',
-        borderRadius: 12,
-        padding: 12,
-        fontSize: 14,
-        color: '#111827',
-    },
-    modalTextArea: {
-        minHeight: 100,
-        textAlignVertical: 'top',
-    },
-    modalPickerButton: {
+    recommendedSkills: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: 6,
         alignItems: 'center',
-        backgroundColor: '#F9FAFB',
-        borderWidth: 1,
-        borderColor: '#E5E7EB',
-        borderRadius: 12,
-        padding: 12,
     },
-    modalPickerText: {
-        fontSize: 14,
-        color: '#111827',
-    },
-    modalPickerPlaceholder: {
-        color: '#9CA3AF',
-    },
-    modalButtons: {
-        flexDirection: 'row',
-        gap: 12,
-        marginTop: 8,
-    },
-    pickerOverlay: {
-        flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: 20,
-    },
-    pickerContainer: {
-        backgroundColor: '#FFFFFF',
-        borderRadius: 16,
-        width: '100%',
-        maxHeight: '70%',
-    },
-    pickerHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: 16,
-        borderBottomWidth: 1,
-        borderBottomColor: '#F3F4F6',
-    },
-    pickerTitle: {
-        fontSize: 18,
-        fontWeight: '700',
-        color: '#111827',
-    },
-    pickerCloseButton: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
+    miniSkillChip: {
         backgroundColor: '#F3F4F6',
-        justifyContent: 'center',
-        alignItems: 'center',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 6,
     },
-    pickerOption: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: 16,
-        gap: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: '#F3F4F6',
+    miniSkillText: {
+        fontSize: 11,
+        color: '#4B5563',
+        fontWeight: '600',
     },
-    pickerOptionSelected: {
-        backgroundColor: '#F0F7FF',
-    },
-    pickerOptionImage: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-    },
-    pickerOptionText: {
-        flex: 1,
-        fontSize: 15,
-        fontWeight: '500',
-        color: '#111827',
+    moreSkillsText: {
+        fontSize: 11,
+        color: '#9CA3AF',
+        fontWeight: '600',
     },
 });
 

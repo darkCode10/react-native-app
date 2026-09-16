@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import Constants from 'expo-constants';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MANUAL_CONFIG } from './manual-config';
 
 // Get from .env file or app.json extra config
@@ -26,14 +27,22 @@ if (!supabaseURL || !supabaseApiKey) {
     console.log("2. Paste into: react-native-app/src/config/manual-config.ts\n");
 }
 
-// Create client with empty strings if not configured (for testing)
+// Create client with AsyncStorage for session persistence (React Native requirement)
 const supabaseClient = createClient(
     supabaseURL || 'https://placeholder.supabase.co',
-    supabaseApiKey || 'placeholder-key'
+    supabaseApiKey || 'placeholder-key',
+    {
+        auth: {
+            storage: AsyncStorage,
+            autoRefreshToken: true,
+            persistSession: true,
+            detectSessionInUrl: false,
+        },
+    }
 );
 
 // Export flag to check if properly configured
 export const isSupabaseConfigured = !!(supabaseURL && supabaseApiKey);
 
-export { supabaseClient };
+export { supabaseClient, supabaseURL, supabaseApiKey };
 

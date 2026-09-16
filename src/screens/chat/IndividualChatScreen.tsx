@@ -14,7 +14,7 @@ import {
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ClientStackParamList } from '@/navigation/types';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getMessagesForChat, sendMessage, updateLastReadMessage } from '@/api/chat-functions';
+import { getMessagesForChat, sendMessage, updateLastReadMessageCol, createNewChatByClient, getAllChatsForUser } from '@/api/chat-functions';
 import { userAuthStore } from '@/store/user-auth-store';
 import { Spinner, Empty } from '@/components/ui';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,40 +22,214 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { CustomHeader } from '@/components/CustomHeader';
 import { MessageFromBackendType } from '@/types';
 import { toast } from '@/utils/toast';
+import { supabaseClient } from '@/config/supabase';
 
 type Props = NativeStackScreenProps<ClientStackParamList, 'IndividualChat'>;
 
 export default function IndividualChatScreen({ route, navigation }: Props) {
-    const { chatId, freelancerId, clientId, otherUserName, otherUserProfilePic } = route.params;
+    const { chatId: initialChatId, freelancerId, clientId, otherUserName, otherUserProfilePic } = route.params;
     const { user } = userAuthStore();
     const [messageText, setMessageText] = useState('');
+    const [chatId, setChatId] = useState(initialChatId);
+    const [isCreatingChat, setIsCreatingChat] = useState(false);
     const flatListRef = useRef<FlatList>(null);
     const queryClient = useQueryClient();
 
-    const { data: messages, isLoading, refetch } = useQuery({
+    const isNewChat = chatId === 'new';
+
+    const [messages, setMessages] = useState<MessageFromBackendType[]>([]);
+    
+    const { data: initialMessages, isLoading } = useQuery({
         queryKey: ['individualMessages', chatId],
         queryFn: () => getMessagesForChat(chatId),
-        enabled: !!chatId,
+        enabled: !!chatId && chatId !== 'new',
         refetchOnMount: true,
+        staleTime: 0, // Always fetch fresh data, don't use cache
+        gcTime: 0, // Don't keep cache after unmount
     });
 
+    // Set initial messages when loaded
+    useEffect(() => {
+        if (initialMessages) {
+            setMessages((prev) => {
+                // If we have optimistic messages, merge them with fetched messages
+                const optimisticMessages = prev.filter(msg => msg.id < 0);
+                
+                // Remove any optimistic messages that might have been saved (should not happen)
+                const withoutOptimistic = initialMessages.filter(msg => msg.id > 0);
+                
+                // Combine: fetched messages + any remaining optimistic ones
+                return [...withoutOptimistic, ...optimisticMessages];
+            });
+        }
+    }, [initialMessages]);
+
+    // Realtime subscription for new messages
+    useEffect(() => {
+        if (!chatId || chatId === 'new') return;
+
+        console.log('[IndividualChat] Setting up realtime subscription for chat:', chatId);
+
+        const channel = supabaseClient
+            .channel(`chat_${chatId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'messages',
+                    filter: `chat_id=eq.${chatId}`,
+                },
+                (payload) => {
+                    console.log('[IndividualChat] New message received:', payload);
+                    const newMessage = payload.new as MessageFromBackendType;
+                    
+                    setMessages((prev) => {
+                        // Remove any optimistic messages (negative IDs) and add the real message
+                        const withoutOptimistic = prev.filter(msg => msg.id > 0);
+                        
+                        // Check if message already exists (avoid duplicates)
+                        const exists = withoutOptimistic.some(msg => msg.id === newMessage.id);
+                        if (exists) {
+                            return prev;
+                        }
+                        
+                        return [...withoutOptimistic, newMessage];
+                    });
+                }
+            )
+            .subscribe((status) => {
+                console.log('[IndividualChat] Subscription status:', status);
+            });
+
+        // Cleanup function
+        return () => {
+            console.log('[IndividualChat] Cleaning up realtime subscription');
+            supabaseClient.removeChannel(channel);
+        };
+    }, [chatId]);
+
     const sendMutation = useMutation({
-        mutationFn: () =>
-            sendMessage(
-                chatId,
-                freelancerId,
-                clientId,
-                user!.role,
-                messageText.trim()
-            ),
-        onSuccess: () => {
-            setMessageText('');
-            refetch();
+        mutationFn: async () => {
+            if (isNewChat) {
+                // Create new chat with first message
+                await createNewChatByClient({
+                    clientId: user!.userId,
+                    freelancerId: freelancerId!,
+                    message: messageText.trim(),
+                });
+            } else {
+                // Send message to existing chat
+                await sendMessage({
+                    chatId,
+                    senderId: user!.userId,
+                    senderRole: user!.role,
+                    messageText: messageText.trim(),
+                });
+            }
         },
-        onError: () => {
-            toast.error('Failed to send message');
+        onMutate: async () => {
+            // Optimistic update: Add message to UI immediately
+            if (!isNewChat && messageText.trim()) {
+                const optimisticMessage: MessageFromBackendType = {
+                    id: -Date.now(), // Temporary ID (negative to distinguish from real IDs)
+                    chat_id: chatId,
+                    sender_id: user!.userId,
+                    sender_role: user!.role,
+                    message_text: messageText.trim(),
+                    created_at: new Date().toISOString(),
+                    file_type: null,
+                };
+                
+                setMessages((prev) => [...prev, optimisticMessage]);
+            }
+        },
+        onSuccess: async () => {
+            setMessageText('');
+            
+            if (isNewChat) {
+                // After creating chat, fetch the chat list to get the new chat ID
+                const chats = await getAllChatsForUser({ userRole: user!.role, userId: user!.userId });
+                const newChat = chats.find(
+                    (chat) => chat.freelancer_id === freelancerId && chat.client_id === user!.userId
+                );
+                
+                if (newChat) {
+                    setChatId(newChat.id);
+                    // Invalidate queries to update chat list
+                    queryClient.invalidateQueries({ queryKey: ['chats', user!.userId, user!.role] });
+                }
+            } else {
+                // Invalidate and refetch to ensure data consistency
+                await queryClient.invalidateQueries({ 
+                    queryKey: ['individualMessages', chatId] 
+                });
+                
+                // Also invalidate the chats list to update last message
+                queryClient.invalidateQueries({ 
+                    queryKey: ['chats', user!.userId, user!.role] 
+                });
+            }
+        },
+        onError: (error: any) => {
+            const errorMessage = error?.message || 'Failed to send message';
+            console.error('[IndividualChat] Send message error:', error);
+            console.error('[IndividualChat] Error details:', JSON.stringify(error, null, 2));
+            
+            // Remove optimistic message on error (messages with negative IDs)
+            setMessages((prev) => prev.filter(msg => msg.id > 0));
+            
+            toast.error(errorMessage);
         },
     });
+
+    // Check for existing chat when screen mounts with 'new' chatId
+    useEffect(() => {
+        const checkExistingChat = async () => {
+            if (chatId === 'new' && user?.userId && freelancerId && clientId) {
+                try {
+                    console.log('[IndividualChat] Checking for existing chat...', { 
+                        userRole: user.role, 
+                        userId: user.userId,
+                        freelancerId,
+                        clientId 
+                    });
+                    
+                    const chats = await getAllChatsForUser({ 
+                        userRole: user.role, 
+                        userId: user.userId 
+                    });
+                    
+                    console.log('[IndividualChat] All chats:', chats.length);
+                    
+                    const existingChat = chats.find((chat) => {
+                        const match = chat.freelancer_id === freelancerId && chat.client_id === clientId;
+                        console.log('[IndividualChat] Checking chat:', { 
+                            chatId: chat.id, 
+                            chatFreelancerId: chat.freelancer_id, 
+                            chatClientId: chat.client_id,
+                            targetFreelancerId: freelancerId,
+                            targetClientId: clientId,
+                            match 
+                        });
+                        return match;
+                    });
+                    
+                    if (existingChat) {
+                        console.log('[IndividualChat] Found existing chat:', existingChat.id);
+                        setChatId(existingChat.id);
+                    } else {
+                        console.log('[IndividualChat] No existing chat found, will create on first message');
+                    }
+                } catch (error: any) {
+                    console.error('[IndividualChat] Error checking existing chat:', error);
+                    // Don't show error to user, just proceed with new chat
+                }
+            }
+        };
+
+        checkExistingChat();
+    }, [initialChatId, user, freelancerId, clientId]);
 
     useEffect(() => {
         if (messages && messages.length > 0) {
@@ -63,18 +237,27 @@ export default function IndividualChatScreen({ route, navigation }: Props) {
                 flatListRef.current?.scrollToEnd({ animated: true });
             }, 100);
             
-            // Mark messages as read
+            // Mark messages as read - but only for real messages, not temporary optimistic ones
             const latestMessage = messages[messages.length - 1];
             if (latestMessage && user?.role && user?.userId) {
-                updateLastReadMessage(chatId, user.role, latestMessage.id)
-                    .then(() => {
-                        // Invalidate queries to update badge and chat list
-                        queryClient.invalidateQueries({ queryKey: ['unseenChatsCount', user.userId, user.role] });
-                        queryClient.invalidateQueries({ queryKey: ['chats', user.userId, user.role] });
+                // Skip if this is a temporary optimistic message (negative ID means not yet in database)
+                const isTemporaryMessage = latestMessage.id < 0;
+                
+                if (!isTemporaryMessage) {
+                    updateLastReadMessageCol({
+                        chatId,
+                        userRole: user.role,
+                        latestMessageId: latestMessage.id,
                     })
-                    .catch((error) => {
-                        console.log('Failed to mark messages as read:', error);
-                    });
+                        .then(() => {
+                            // Invalidate queries to update badge and chat list
+                            queryClient.invalidateQueries({ queryKey: ['unseenChatsCount', user.userId, user.role] });
+                            queryClient.invalidateQueries({ queryKey: ['chats', user.userId, user.role] });
+                        })
+                        .catch((error) => {
+                            console.log('Failed to mark messages as read:', error);
+                        });
+                }
             }
         }
     }, [messages?.length, chatId, user?.role, user?.userId, queryClient]);
@@ -359,7 +542,7 @@ export default function IndividualChatScreen({ route, navigation }: Props) {
         );
     };
 
-    if (isLoading) {
+    if (isLoading && !isNewChat) {
         return <Spinner fullScreen />;
     }
 
@@ -387,7 +570,10 @@ export default function IndividualChatScreen({ route, navigation }: Props) {
             >
                 <View style={styles.messagesContainer}>
                     {!messages || messages.length === 0 ? (
-                        <Empty title="No messages" description="Start the conversation!" />
+                        <Empty 
+                            title={isNewChat ? "New Conversation" : "No messages"} 
+                            description="Start the conversation!" 
+                        />
                     ) : (
                         <FlatList
                             ref={flatListRef}
@@ -591,10 +777,6 @@ const styles = StyleSheet.create({
         borderRadius: 18,
         maxWidth: '70%',
         elevation: 3,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.12,
-        shadowRadius: 4,
     },
     otherMessageBubble: {
         backgroundColor: '#FFFFFF',
@@ -669,10 +851,6 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         elevation: 5,
-        shadowColor: '#0532A9',
-        shadowOffset: { width: 0, height: 3 },
-        shadowOpacity: 0.4,
-        shadowRadius: 6,
     },
     sendButtonDisabled: {
         backgroundColor: 'rgba(229, 231, 235, 0.8)',

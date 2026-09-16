@@ -6,9 +6,8 @@ import { CustomHeader } from '../components/CustomHeader';
 import { Ionicons } from '@expo/vector-icons';
 import { getFocusedRouteNameFromRoute, useNavigation } from '@react-navigation/native';
 import { useUnseenChatsCount } from '../hooks/useUnseenChatsCount';
-import { getAllNotificationsForUser } from '@/api/notifications-functions';
-import { useQuery } from '@tanstack/react-query';
-import { userAuthStore } from '@/store/user-auth-store';
+import { useUnreadNotificationsCount } from '../hooks/useUnreadNotificationsCount';
+import { FreelancerStackParamList } from './types';
 
 // Import screens
 import FreelancerDashboardScreen from '../screens/freelancer/FreelancerDashboardScreen';
@@ -20,16 +19,16 @@ import FreelancerDetailsPageScreen from '../screens/freelancer/FreelancerDetails
 import ClientProfileFreelancerScreen from '../screens/freelancer/ClientProfileScreen';
 import NotificationsScreen from '../screens/shared/NotificationsScreen';
 import MilestoneDetailsScreen from '../screens/shared/MilestoneDetailsScreen';
-// Chat screens temporarily disabled during Freelansync DB migration
-// import ProjectChatScreen from '../screens/chat/ProjectChatScreen';
-// import ChatsScreen from '../screens/chat/ChatsScreen';
-// import IndividualChatScreen from '../screens/chat/IndividualChatScreen';
+// Chat screens enabled with polling approach
+import ProjectChatScreen from '../screens/chat/ProjectChatScreen';
+import ChatsScreen from '../screens/chat/ChatsScreen';
+import IndividualChatScreen from '../screens/chat/IndividualChatScreen';
 
 const Tab = createBottomTabNavigator();
-const Stack = createNativeStackNavigator();
+const Stack = createNativeStackNavigator<FreelancerStackParamList>();
 
-// Chats Screen Wrapper with Search State - DISABLED
-/* function ChatsScreenWrapper() {
+// Chats Screen Wrapper with Search State
+function ChatsScreenWrapper() {
     const [searchQuery, setSearchQuery] = React.useState('');
     const unseenChatsCount = useUnseenChatsCount();
     const navigation = useNavigation();
@@ -42,6 +41,7 @@ const Stack = createNativeStackNavigator();
                     role="freelancer" 
                     unseenChatsCount={unseenChatsCount}
                     hideChatIcon={true}
+                    hideNotificationIcon={true}
                     showSearchBar={true}
                     searchQuery={searchQuery}
                     onSearchChange={setSearchQuery}
@@ -52,7 +52,7 @@ const Stack = createNativeStackNavigator();
     }, [navigation, unseenChatsCount, searchQuery]);
 
     return <ChatsScreen searchQuery={searchQuery} />;
-} */
+}
 
 // Freelancer Projects Screen Wrapper with Search State
 function FreelancerProjectsScreenWrapper() {
@@ -67,6 +67,7 @@ function FreelancerProjectsScreenWrapper() {
                     title="My Projects" 
                     role="freelancer" 
                     unseenChatsCount={unseenChatsCount}
+                    hideNotificationIcon={true}
                     showSearchBar={true}
                     searchQuery={searchQuery}
                     onSearchChange={setSearchQuery}
@@ -86,26 +87,25 @@ function DashboardStack() {
     return (
         <Stack.Navigator
             screenOptions={{
-                header: () => <CustomHeader title="Dashboard" role="freelancer" unseenChatsCount={unseenChatsCount} />,
+                header: () => <CustomHeader title="Dashboard" role="freelancer" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
                 animation: 'fade_from_bottom',
             }}
         >
-            <Stack.Screen name="DashboardMain" component={FreelancerDashboardScreen} />
+            <Stack.Screen name="FreelancerDashboard" component={FreelancerDashboardScreen} />
             <Stack.Screen 
                 name="ProjectDetails" 
                 component={ProjectDetailsFreelancerScreen}
                 options={{
-                    header: () => <CustomHeader title="Project Details" role="freelancer" unseenChatsCount={unseenChatsCount} />,
+                    header: () => <CustomHeader title="Project Details" role="freelancer" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
                 }}
             />
             <Stack.Screen 
-                name="FreelancerProfile" 
-                component={FreelancerProfileScreen}
+                name="MilestoneDetails" 
+                component={MilestoneDetailsScreen}
                 options={{
-                    header: () => <CustomHeader title="My Profile" role="freelancer" unseenChatsCount={unseenChatsCount} />,
+                    header: () => <CustomHeader title="Milestone Details" role="freelancer" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
                 }}
             />
-            {/* Chat functionality temporarily disabled - will be re-enabled with new DB
             <Stack.Screen 
                 name="Chats" 
                 component={ChatsScreenWrapper}
@@ -114,12 +114,11 @@ function DashboardStack() {
                 name="ProjectChat" 
                 component={ProjectChatScreen}
             />
-            */}
             <Stack.Screen 
                 name="ClientProfile" 
                 component={ClientProfileFreelancerScreen}
                 options={{
-                    header: () => <CustomHeader title="Client Profile" role="freelancer" unseenChatsCount={unseenChatsCount} />,
+                    header: () => <CustomHeader title="Client Profile" role="freelancer" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
                 }}
             />
             <Stack.Screen
@@ -129,19 +128,17 @@ function DashboardStack() {
                     headerShown: false,
                 }}
             />
-            <Stack.Screen
-                name="MilestoneDetails"
-                component={MilestoneDetailsScreen}
-                options={{
-                    headerShown: false,
-                }}
-            />
-            {/* Chat functionality temporarily disabled - will be re-enabled with new DB
             <Stack.Screen 
                 name="IndividualChat" 
                 component={IndividualChatScreen}
             />
-            */}
+            <Stack.Screen 
+                name="FreelancerProfile" 
+                component={FreelancerProfileScreen}
+                options={{
+                    header: () => <CustomHeader title="My Profile" role="freelancer" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
+                }}
+            />
         </Stack.Navigator>
     );
 }
@@ -153,16 +150,16 @@ function InvitationsStack() {
     return (
         <Stack.Navigator
             screenOptions={{
-                header: () => <CustomHeader title="Invitations" role="freelancer" unseenChatsCount={unseenChatsCount} />,
+                header: () => <CustomHeader title="Invitations" role="freelancer" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
                 animation: 'slide_from_right',
             }}
         >
-            <Stack.Screen name="InvitationsMain" component={FreelancerInvitesScreen} />
+            <Stack.Screen name="FreelancerInvites" component={FreelancerInvitesScreen} />
             <Stack.Screen 
                 name="ProjectDetails" 
                 component={ProjectDetailsFreelancerScreen}
                 options={{
-                    header: () => <CustomHeader title="Project Details" role="freelancer" unseenChatsCount={unseenChatsCount} />,
+                    header: () => <CustomHeader title="Project Details" role="freelancer" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
                 }}
             />
             <Stack.Screen
@@ -172,14 +169,6 @@ function InvitationsStack() {
                     headerShown: false,
                 }}
             />
-            <Stack.Screen
-                name="MilestoneDetails"
-                component={MilestoneDetailsScreen}
-                options={{
-                    headerShown: false,
-                }}
-            />
-            {/* Chat functionality temporarily disabled - will be re-enabled with new DB
             <Stack.Screen 
                 name="ProjectChat" 
                 component={ProjectChatScreen}
@@ -192,7 +181,13 @@ function InvitationsStack() {
                 name="IndividualChat" 
                 component={IndividualChatScreen}
             />
-            */}
+            <Stack.Screen 
+                name="FreelancerProfile" 
+                component={FreelancerProfileScreen}
+                options={{
+                    header: () => <CustomHeader title="My Profile" role="freelancer" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
+                }}
+            />
         </Stack.Navigator>
     );
 }
@@ -207,12 +202,19 @@ function MyProjectsStack() {
                 animation: 'slide_from_left',
             }}
         >
-            <Stack.Screen name="ProjectsMain" component={FreelancerProjectsScreenWrapper} />
+            <Stack.Screen name="FreelancerProjects" component={FreelancerProjectsScreenWrapper} />
             <Stack.Screen 
                 name="ProjectDetails" 
                 component={ProjectDetailsFreelancerScreen}
                 options={{
-                    header: () => <CustomHeader title="Project Details" role="freelancer" unseenChatsCount={unseenChatsCount} />,
+                    header: () => <CustomHeader title="Project Details" role="freelancer" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
+                }}
+            />
+            <Stack.Screen 
+                name="MilestoneDetails" 
+                component={MilestoneDetailsScreen}
+                options={{
+                    header: () => <CustomHeader title="Milestone Details" role="freelancer" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
                 }}
             />
             <Stack.Screen
@@ -222,14 +224,6 @@ function MyProjectsStack() {
                     headerShown: false,
                 }}
             />
-            <Stack.Screen
-                name="MilestoneDetails"
-                component={MilestoneDetailsScreen}
-                options={{
-                    headerShown: false,
-                }}
-            />
-            {/* Chat functionality temporarily disabled - will be re-enabled with new DB
             <Stack.Screen 
                 name="ProjectChat" 
                 component={ProjectChatScreen}
@@ -242,33 +236,46 @@ function MyProjectsStack() {
                 name="IndividualChat" 
                 component={IndividualChatScreen}
             />
-            */}
-        </Stack.Navigator>
-    );
-}
-
-// Stack Navigator for Freelancer Details (for browsing other freelancers)
-function FreelancersStack() {
-    const unseenChatsCount = useUnseenChatsCount();
-    
-    return (
-        <Stack.Navigator
-            screenOptions={{
-                header: () => <CustomHeader title="Freelancers" role="freelancer" unseenChatsCount={unseenChatsCount} />,
-                animation: 'fade',
-            }}
-        >
-            <Stack.Screen name="FreelancerDetailsMain" component={FreelancerDetailsPageScreen} />
-            <Stack.Screen
-                name="Notifications"
-                component={NotificationsScreen}
+            <Stack.Screen 
+                name="FreelancerProfile" 
+                component={FreelancerProfileScreen}
                 options={{
-                    headerShown: false,
+                    header: () => <CustomHeader title="My Profile" role="freelancer" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
                 }}
             />
         </Stack.Navigator>
     );
 }
+
+// Stack Navigator for Notifications
+function NotificationsStack() {
+    const unseenChatsCount = useUnseenChatsCount();
+    
+    return (
+        <Stack.Navigator>
+            <Stack.Screen 
+                name="NotificationsMain" 
+                component={NotificationsScreen} 
+                options={{ headerShown: false }} 
+            />
+            <Stack.Screen 
+                name="ProjectDetails" 
+                component={ProjectDetailsFreelancerScreen}
+                options={{
+                    header: () => <CustomHeader title="Project Details" role="freelancer" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
+                }}
+            />
+            <Stack.Screen 
+                name="FreelancerProfile" 
+                component={FreelancerProfileScreen}
+                options={{
+                    header: () => <CustomHeader title="My Profile" role="freelancer" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
+                }}
+            />
+        </Stack.Navigator>
+    );
+}
+
 
 // Custom Tab Bar Icon
 const TabIcon = ({ 
@@ -276,7 +283,7 @@ const TabIcon = ({
     iconFilled, 
     label, 
     focused,
-    badgeCount = 0
+    badgeCount 
 }: { 
     iconOutline: keyof typeof Ionicons.glyphMap; 
     iconFilled: keyof typeof Ionicons.glyphMap; 
@@ -292,7 +299,7 @@ const TabIcon = ({
                 color={focused ? '#0532A9' : '#999'} 
                 style={focused && styles.tabIconFocused}
             />
-            {badgeCount > 0 && (
+            {badgeCount !== undefined && badgeCount > 0 && (
                 <View style={styles.badge}>
                     <Text style={styles.badgeText}>
                         {badgeCount > 9 ? '9+' : badgeCount}
@@ -305,19 +312,8 @@ const TabIcon = ({
 );
 
 export default function FreelancerNavigator() {
-    const { user } = userAuthStore();
+    const unreadNotificationsCount = useUnreadNotificationsCount();
     
-    // Fetch notifications to get unread count
-    const { data: notifications } = useQuery({
-        queryKey: ['get-all-notifications-for-user', user?.userId],
-        queryFn: () => getAllNotificationsForUser(user!.userId),
-        enabled: !!user?.userId,
-        refetchInterval: 20 * 1000,
-        refetchIntervalInBackground: true,
-    });
-
-    const unreadNotificationCount = notifications?.filter((n) => !n.read).length || 0;
-
     return (
         <Tab.Navigator
             screenOptions={{
@@ -346,18 +342,7 @@ export default function FreelancerNavigator() {
                 }}
                 listeners={({ navigation }) => ({
                     tabPress: (e) => {
-                        const state = navigation.getState();
-                        const routeIndex = state.routes.findIndex((r: any) => r.name === 'Dashboard');
-                        if (routeIndex !== -1) {
-                            const dashboardState = state.routes[routeIndex].state;
-                            if (dashboardState && dashboardState.index > 0) {
-                                e.preventDefault();
-                                navigation.reset({
-                                    index: 0,
-                                    routes: [{ name: 'Dashboard' }],
-                                });
-                            }
-                        }
+                        navigation.navigate('Dashboard', { screen: 'DashboardMain' });
                     },
                 })}
             />
@@ -381,35 +366,32 @@ export default function FreelancerNavigator() {
                 }}
                 listeners={({ navigation }) => ({
                     tabPress: (e) => {
-                        const state = navigation.getState();
-                        const routeIndex = state.routes.findIndex((r: any) => r.name === 'Invitations');
-                        if (routeIndex !== -1) {
-                            const invitationsState = state.routes[routeIndex].state;
-                            if (invitationsState && invitationsState.index > 0) {
-                                e.preventDefault();
-                                navigation.reset({
-                                    index: 0,
-                                    routes: [{ name: 'Invitations' }],
-                                });
-                            }
-                        }
+                        navigation.navigate('Invitations', { screen: 'InvitationsMain' });
                     },
                 })}
             />
             <Tab.Screen
                 name="Notifications"
-                component={NotificationsScreen}
-                options={{
-                    tabBarIcon: ({ focused }) => (
-                        <TabIcon 
-                            iconOutline="notifications-outline" 
-                            iconFilled="notifications" 
-                            label="Alerts" 
-                            focused={focused} 
-                            badgeCount={unreadNotificationCount}
-                        />
-                    ),
+                component={NotificationsStack}
+                options={({ route }) => {
+                    const routeName = getFocusedRouteNameFromRoute(route) ?? 'NotificationsMain';
+                    return {
+                        tabBarIcon: ({ focused }) => (
+                            <TabIcon 
+                                iconOutline="notifications-outline" 
+                                iconFilled="notifications" 
+                                label="Alerts" 
+                                focused={focused && routeName === 'NotificationsMain'} 
+                                badgeCount={unreadNotificationsCount}
+                            />
+                        ),
+                    };
                 }}
+                listeners={({ navigation }) => ({
+                    tabPress: (e) => {
+                        navigation.navigate('Notifications', { screen: 'NotificationsMain' });
+                    },
+                })}
             />
             <Tab.Screen
                 name="Projects"
@@ -431,37 +413,9 @@ export default function FreelancerNavigator() {
                 }}
                 listeners={({ navigation }) => ({
                     tabPress: (e) => {
-                        const state = navigation.getState();
-                        const routeIndex = state.routes.findIndex((r: any) => r.name === 'Projects');
-                        if (routeIndex !== -1) {
-                            const projectsState = state.routes[routeIndex].state;
-                            if (projectsState && projectsState.index > 0) {
-                                e.preventDefault();
-                                navigation.reset({
-                                    index: 0,
-                                    routes: [{ name: 'Projects' }],
-                                });
-                            }
-                        }
+                        navigation.navigate('Projects', { screen: 'ProjectsMain' });
                     },
                 })}
-            />
-            <Tab.Screen
-                name="Freelancers"
-                component={FreelancersStack}
-                options={({ route }) => {
-                    const routeName = getFocusedRouteNameFromRoute(route) ?? 'FreelancerDetailsMain';
-                    return {
-                        tabBarIcon: ({ focused }) => (
-                            <TabIcon 
-                                iconOutline="people-outline" 
-                                iconFilled="people" 
-                                label="People" 
-                                focused={focused && routeName === 'FreelancerDetailsMain'} 
-                            />
-                        ),
-                    };
-                }}
             />
         </Tab.Navigator>
     );
@@ -476,10 +430,6 @@ const styles = StyleSheet.create({
         borderTopWidth: 1,
         borderTopColor: '#e0e0e0',
         elevation: 8,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
     },
     tabItem: {
         alignItems: 'center',
@@ -505,7 +455,7 @@ const styles = StyleSheet.create({
         position: 'absolute',
         top: -4,
         right: -8,
-        backgroundColor: '#DC2626',
+        backgroundColor: '#EF4444',
         borderRadius: 10,
         minWidth: 18,
         height: 18,
@@ -513,10 +463,10 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         paddingHorizontal: 4,
         borderWidth: 2,
-        borderColor: '#FFFFFF',
+        borderColor: '#fff',
     },
     badgeText: {
-        color: '#FFFFFF',
+        color: '#fff',
         fontSize: 10,
         fontWeight: '700',
     },

@@ -17,11 +17,13 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { getMessagesForProject, sendProjectChatMessage } from '@/api/chat-functions';
-import { getProjectById } from '@/api/project-functions';
+import { getProjectDetailsById } from '@/api/project-functions';
 import { userAuthStore } from '@/store/user-auth-store';
 import { Spinner, Empty } from '@/components/ui';
 import { toast } from '@/utils/toast';
 import { CustomHeader } from '@/components/CustomHeader';
+import { supabaseClient } from '@/config/supabase';
+import { ProjectMessageFromBackendType } from '@/types';
 
 type Props = any; // Can be either ClientStackParamList or FreelancerStackParamList
 
@@ -36,7 +38,7 @@ export default function ProjectChatScreen({ route }: Props) {
     // Fetch project details
     const { data: project } = useQuery({
         queryKey: ['project', projectId],
-        queryFn: () => getProjectById(projectId),
+        queryFn: () => getProjectDetailsById(projectId),
         enabled: !!projectId,
     });
 
@@ -50,23 +52,22 @@ export default function ProjectChatScreen({ route }: Props) {
     const headerComponent = useMemo(() => {
         return () => (
             <CustomHeader 
-                title={project?.project_title || 'Project Chat'} 
+                title={project?.title || 'Project Chat'} 
                 role={user?.role || 'client'}
                 showBackButton={true}
                 onBackPress={handleBackPress}
-                subtitle={project?.project_description ? 
-                    project.project_description.substring(0, 60) + '...' : 
+                subtitle={project?.description ? 
+                    (project.description.length > 60 ? project.description.substring(0, 60) + '...' : project.description) : 
                     'Project discussion'
                 }
-                projectBudget={project?.project_budget}
-                projectStatus={project?.project_status}
+                projectBudget={project?.budget}
+                projectStatus={project?.status}
             />
         );
     }, [project, user?.role, handleBackPress]);
 
     // Hide tab bar and update header when screen is focused
     useLayoutEffect(() => {
-        console.log('[ProjectChatScreen] useLayoutEffect - Setting up header');
         
         // Hide bottom tab bar
         const parent = navigation.getParent();
@@ -83,7 +84,6 @@ export default function ProjectChatScreen({ route }: Props) {
 
         // Show tab bar again when leaving this screen
         return () => {
-            console.log('[ProjectChatScreen] useLayoutEffect cleanup - Restoring tab bar');
             if (parent) {
                 parent.setOptions({
                     tabBarStyle: {
@@ -104,31 +104,56 @@ export default function ProjectChatScreen({ route }: Props) {
         };
     }, [navigation, headerComponent]);
 
-    const { data: messages, isLoading, refetch } = useQuery({
+    const [messages, setMessages] = useState<ProjectMessageFromBackendType[]>([]);
+    
+    const { data: initialMessages, isLoading } = useQuery({
         queryKey: ['projectMessages', projectId],
         queryFn: () => getMessagesForProject(projectId),
-        // NO automatic polling - only manual refetch
-        refetchInterval: false,
-        refetchIntervalInBackground: false,
-        refetchOnWindowFocus: false,
         refetchOnMount: true,
-        staleTime: 10000, // Consider data fresh for 10 seconds
     });
 
-    // Manual refetch when screen comes into focus
-    useFocusEffect(
-        useCallback(() => {
-            refetch();
-        }, [refetch])
-    );
+    // Set initial messages when loaded
+    useEffect(() => {
+        if (initialMessages) {
+            setMessages(initialMessages);
+        }
+    }, [initialMessages]);
+
+    // Realtime subscription for new messages
+    useEffect(() => {
+        if (!projectId) return;
+
+
+        const channel = supabaseClient
+            .channel(`project_chat_${projectId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'project_messages',
+                    filter: `project=eq.${projectId}`,
+                },
+                (payload) => {
+                    const newMessage = payload.new as ProjectMessageFromBackendType;
+                    setMessages((prev) => [...prev, newMessage]);
+                }
+            )
+            .subscribe((status) => {
+            });
+
+        // Cleanup function
+        return () => {
+            supabaseClient.removeChannel(channel);
+        };
+    }, [projectId]);
 
     const sendMutation = useMutation({
         mutationFn: () =>
             sendProjectChatMessage(projectId, user!.userId, user!.username, message),
         onSuccess: () => {
             setMessage('');
-            // Manually refetch instead of invalidating
-            refetch();
+            // No need to refetch - realtime subscription will handle new messages
         },
         onError: () => {
             toast.error('Failed to send message');
@@ -284,7 +309,7 @@ export default function ProjectChatScreen({ route }: Props) {
                             }
 
                             // Render message
-                            const isMyMessage = item.sender_id === user?.userId;
+                            const isMyMessage = item.sender === user?.userId;
                             
                             // Find next and previous messages (skip separators)
                             const actualMessages = messagesWithSeparators.filter(m => m.type === 'message');
@@ -293,7 +318,7 @@ export default function ProjectChatScreen({ route }: Props) {
                             const prevMessage = actualMessages[actualIndex - 1];
                             
                             // Show profile picture if sender will change OR if 2+ hour gap to next message
-                            let isLastInSequence = !nextMessage || nextMessage.sender_id !== item.sender_id;
+                            let isLastInSequence = !nextMessage || nextMessage.sender !== item.sender;
                             if (!isLastInSequence && nextMessage) {
                                 const currentTime = new Date(item.created_at).getTime();
                                 const nextTime = new Date(nextMessage.created_at).getTime();
@@ -304,7 +329,7 @@ export default function ProjectChatScreen({ route }: Props) {
                             }
                             
                             // Show username if sender changed OR if 2+ hour gap from previous message
-                            let isFirstInSequence = !prevMessage || prevMessage.sender_id !== item.sender_id;
+                            let isFirstInSequence = !prevMessage || prevMessage.sender !== item.sender;
                             if (!isFirstInSequence && prevMessage) {
                                 const currentTime = new Date(item.created_at).getTime();
                                 const prevTime = new Date(prevMessage.created_at).getTime();
@@ -562,10 +587,6 @@ const styles = StyleSheet.create({
         borderWidth: 2,
         borderColor: '#FFFFFF',
         elevation: 2,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
     },
     avatarSpacer: {
         width: 32,
@@ -581,16 +602,10 @@ const styles = StyleSheet.create({
         borderWidth: 2,
         borderColor: '#FFFFFF',
         elevation: 2,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
     },
     myAvatarPlaceholder: {
         backgroundColor: '#0532A9',
         borderColor: 'rgba(255, 255, 255, 0.9)',
-        shadowColor: '#0532A9',
-        shadowOpacity: 0.3,
     },
     avatarText: {
         color: '#fff',
@@ -606,10 +621,6 @@ const styles = StyleSheet.create({
         borderRadius: 18,
         maxWidth: '70%',
         elevation: 3,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.12,
-        shadowRadius: 4,
     },
     otherMessageBubble: {
         backgroundColor: '#FFFFFF',
@@ -620,8 +631,6 @@ const styles = StyleSheet.create({
     myMessageBubble: {
         backgroundColor: '#0532A9',
         borderBottomRightRadius: 4,
-        shadowColor: '#0532A9',
-        shadowOpacity: 0.25,
     },
     messageSender: {
         fontSize: 12,
@@ -684,10 +693,6 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         elevation: 5,
-        shadowColor: '#0532A9',
-        shadowOffset: { width: 0, height: 3 },
-        shadowOpacity: 0.4,
-        shadowRadius: 6,
     },
     sendButtonDisabled: {
         backgroundColor: 'rgba(229, 231, 235, 0.8)',

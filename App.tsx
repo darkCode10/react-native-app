@@ -8,20 +8,22 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { isSupabaseConfigured } from './src/config/supabase';
 import { userAuthStore } from './src/store/user-auth-store';
 import { ToastProvider } from './src/components/Toast';
+import { RootStackParamList } from './src/navigation/types';
 
 // Import screens
+import SplashScreen from './src/screens/public/SplashScreen';
 import LandingScreen from './src/screens/public/LandingScreen';
 import LoginScreen from './src/screens/public/LoginScreen';
 import SignupScreen from './src/screens/public/SignupScreen';
 import ClientNavigator from './src/navigation/ClientNavigator';
 import FreelancerNavigator from './src/navigation/FreelancerNavigator';
 
-const Stack = createNativeStackNavigator();
+const Stack = createNativeStackNavigator<RootStackParamList>();
 const queryClient = new QueryClient({
     defaultOptions: {
         queries: {
             retry: 2,
-            staleTime: 1000 * 60 * 5,
+            staleTime: 1000 * 40,
         },
     },
 });
@@ -67,6 +69,7 @@ class ErrorBoundary extends React.Component<
 export default function App() {
     const { user, userExists } = userAuthStore();
     const [isReady, setIsReady] = React.useState(false);
+    const [showSplash, setShowSplash] = React.useState(true);
 
     // Check Supabase configuration on mount
     React.useEffect(() => {
@@ -76,13 +79,22 @@ export default function App() {
         setIsReady(true);
     }, []);
 
+    // Show splash screen for 2.5 seconds
+    React.useEffect(() => {
+        const timer = setTimeout(() => {
+            setShowSplash(false);
+        }, 2500);
+
+        return () => clearTimeout(timer);
+    }, []);
+
     // Debug: Log auth state changes
     React.useEffect(() => {
         console.log('Auth State Changed:', { userExists, role: user?.role, username: user?.username });
     }, [userExists, user]);
 
-    if (!isReady) {
-        return null;
+    if (!isReady || showSplash) {
+        return <SplashScreen />;
     }
 
     return (
@@ -117,13 +129,13 @@ export default function App() {
                                     ) : user?.role === 'client' ? (
                                         // Client routes
                                         <Stack.Screen 
-                                            name="ClientApp" 
+                                            name="ClientTabs" 
                                             component={ClientNavigator}
                                         />
                                     ) : (
                                         // Freelancer routes
                                         <Stack.Screen 
-                                            name="FreelancerApp" 
+                                            name="FreelancerTabs" 
                                             component={FreelancerNavigator}
                                         />
                                     )}

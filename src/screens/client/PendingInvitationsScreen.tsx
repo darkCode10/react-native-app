@@ -90,7 +90,6 @@ export default function PendingInvitationsScreen({ route, navigation }: Props) {
                     <Empty
                         title="No Pending Invitations"
                         description="You haven't sent any invitations for this project yet."
-                        icon="📭"
                     />
                 ) : (
                     <View style={styles.invitationsGrid}>
@@ -108,7 +107,7 @@ export default function PendingInvitationsScreen({ route, navigation }: Props) {
                                 </View>
 
                                 <Text style={styles.description} numberOfLines={3}>
-                                    {invitation.freelancer.description || 'No description available'}
+                                    {invitation.freelancer.email || 'No email available'}
                                 </Text>
 
                                 <View style={styles.skillsContainer}>
@@ -134,13 +133,9 @@ export default function PendingInvitationsScreen({ route, navigation }: Props) {
                                     <Button
                                         title="View Profile"
                                         onPress={() => {
-                                            if (user?.userId === invitation.freelancer.id) {
-                                                navigation.navigate('FreelancerProfile');
-                                            } else {
-                                                navigation.navigate('FreelancerDetails', { 
-                                                    freelancerId: invitation.freelancer.id 
-                                                });
-                                            }
+                                            navigation.navigate('FreelancerDetails', { 
+                                                freelancerId: invitation.freelancer.id 
+                                            });
                                         }}
                                         variant="outline"
                                         style={styles.viewButton}

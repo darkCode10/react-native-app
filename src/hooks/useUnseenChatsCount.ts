@@ -1,43 +1,34 @@
-// ============================================
-// UNSEEN CHATS COUNT HOOK (TEMPORARILY DISABLED)
-// This hook is disabled while chat functionality is being migrated
-// to the new Freelansync database. It currently returns 0.
-// ============================================
+// UNSEEN CHATS COUNT HOOK (Using Polling Approach)
 
-// import { useQuery } from '@tanstack/react-query';
-// import { getUnseenChatsCount } from '@/api/chat-functions';
-// import { userAuthStore } from '@/store/user-auth-store';
+import { useQuery } from '@tanstack/react-query';
+import { getAllChatsForUser } from '@/api/chat-functions';
+import { userAuthStore } from '@/store/user-auth-store';
 
 /**
  * Hook to get unseen chats count
- * Currently returns 0 as chat is disabled during Freelansync DB migration
- * Will be re-enabled when Freelansync adds chat tables
+ * Calculates count from chat list with unseen messages
  */
 export function useUnseenChatsCount(): number {
-    // const { user } = userAuthStore();
+    const { user } = userAuthStore();
 
-    // Temporarily return 0 until chat is re-enabled
-    return 0;
-
-    /* Original implementation - will be restored when chat is re-enabled:
-    const { data: unseenCount = 0 } = useQuery({
-        queryKey: ['unseenChatsCount', user?.userId, user?.role],
-        queryFn: () => getUnseenChatsCount({
-            userId: user!.userId,
-            userRole: user!.role,
-        }),
+    const { data: chats } = useQuery({
+        queryKey: ['chats', user?.userId, user?.role],
+        queryFn: () => getAllChatsForUser({ userRole: user!.role, userId: user!.userId }),
         enabled: !!user?.userId && !!user?.role,
-        placeholderData: 0,
-        refetchInterval: 15000,
-        staleTime: 10000,
+        placeholderData: [],
+        refetchInterval: 5 * 60 * 1000, // Poll every 5 minutes (same as chat list)
+        refetchIntervalInBackground: true,
+        staleTime: 30 * 1000,
         refetchOnMount: true,
-        refetchOnWindowFocus: false,
+        refetchOnWindowFocus: true,
         gcTime: 300000,
         retry: 1,
     });
 
+    // Calculate unseen count from chats with unseenCount > 0
+    const unseenCount = chats?.filter(chat => (chat.unseenCount || 0) > 0).length || 0;
+
     return unseenCount;
-    */
 }
 
 

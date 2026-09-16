@@ -20,19 +20,9 @@ export default function FreelancerProfileScreen({}: Props) {
 
     const { data: profile, isLoading, error } = useQuery({
         queryKey: ['freelancerProfile', user?.userId],
-        queryFn: async () => {
-            try {
-                return await getFreelancerProfileOwnDataById(user!.userId);
-            } catch (err) {
-                console.log('Profile fetch error:', err);
-                throw err;
-            }
-        },
+        queryFn: () => getFreelancerProfileOwnDataById(user!.userId),
         enabled: !!user?.userId,
         retry: 1,
-        onError: (err) => {
-            console.log('Query error caught:', err);
-        },
     });
 
     const uploadProfilePicture = useMutation({

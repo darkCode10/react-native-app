@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, KeyboardAvoidingView, Platform, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, KeyboardAvoidingView, Platform, Dimensions, Image } from 'react-native';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { userAuthStore } from '../../store/user-auth-store';
@@ -101,7 +101,7 @@ export default function LoginScreen({ navigation }: any) {
                         userId: freelancerData.id,
                         username: freelancerData.username,
                         role: 'freelancer',
-                        email: initialResponse.data.user?.email,
+                        email: freelancerData.email || initialResponse.data.user?.email || '',
                         profile_pic: freelancerData.profile_pic,
                         wallet_amount: freelancerData.wallet_amount || 0,
                     });
@@ -109,7 +109,7 @@ export default function LoginScreen({ navigation }: any) {
                         userId: freelancerData.id,
                         username: freelancerData.username,
                         role: 'freelancer',
-                        email: initialResponse.data.user?.email,
+                        email: freelancerData.email || initialResponse.data.user?.email || '',
                         profile_pic: freelancerData.profile_pic,
                         wallet_amount: freelancerData.wallet_amount || 0,
                     });
@@ -144,7 +144,7 @@ export default function LoginScreen({ navigation }: any) {
                         userId: clientData.id,
                         username: clientData.username,
                         role: 'client',
-                        email: initialResponse.data.user?.email,
+                        email: clientData.email || initialResponse.data.user?.email || '',
                         profile_pic: clientData.profile_pic,
                         wallet_amount: clientData.wallet_amount || 0,
                     });
@@ -152,7 +152,7 @@ export default function LoginScreen({ navigation }: any) {
                         userId: clientData.id,
                         username: clientData.username,
                         role: 'client',
-                        email: initialResponse.data.user?.email,
+                        email: clientData.email || initialResponse.data.user?.email || '',
                         profile_pic: clientData.profile_pic,
                         wallet_amount: clientData.wallet_amount || 0,
                     });
@@ -190,7 +190,11 @@ export default function LoginScreen({ navigation }: any) {
                         
                         <View style={styles.headerContent}>
                             <View style={styles.logoContainer}>
-                                <Ionicons name="infinite" size={40} color="#fff" />
+                                <Image 
+                                    source={require('@/asset/Logo.png')} 
+                                    style={styles.logoImage}
+                                    resizeMode="contain"
+                                />
                             </View>
                             <Text style={styles.headerTitle}>Welcome Back</Text>
                             <Text style={styles.headerSubtitle}>Sign in to continue</Text>
@@ -255,7 +259,6 @@ export default function LoginScreen({ navigation }: any) {
                             loading={loading}
                             style={styles.loginButton}
                             textStyle={styles.loginButtonText}
-                            icon={<Ionicons name="log-in-outline" size={20} color="#fff" />}
                         />
 
                         <View style={styles.dividerContainer}>
@@ -310,21 +313,21 @@ const styles = StyleSheet.create({
         paddingBottom: 40,
     },
     logoContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 4,
+        backgroundColor: 'transparent',
+    },
+    logoImage: {
         width: 80,
         height: 80,
-        backgroundColor: 'rgba(255,255,255,0.15)',
-        borderRadius: 24,
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: 16,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.2)',
+        backgroundColor: 'transparent',
     },
     headerTitle: {
         fontSize: 32,
         fontWeight: 'bold',
         color: '#fff',
-        marginBottom: 8,
+        marginBottom: 4,
     },
     headerSubtitle: {
         fontSize: 16,

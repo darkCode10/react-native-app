@@ -22,20 +22,9 @@ export default function ClientProfileScreen({ }: Props) {
 
     const { data: profile, isLoading, error } = useQuery({
         queryKey: ['clientProfile', user?.userId],
-        queryFn: async () => {
-            try {
-                return await getClientProfileOwnDataById(user!.userId);
-            } catch (err) {
-                console.log('Profile fetch error:', err);
-                throw err;
-            }
-        },
+        queryFn: () => getClientProfileOwnDataById(user!.userId),
         enabled: !!user?.userId,
         retry: 1, // Only retry once
-        onError: (err) => {
-            // Silently handle the error - it will be shown in the UI
-            console.log('Query error caught:', err);
-        },
     });
 
     const uploadProfilePicture = useMutation({

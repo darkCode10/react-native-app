@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, ImageBackground, Dimensions, StatusBar } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, ImageBackground, Dimensions, StatusBar, Image } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '@/navigation/types';
 import { Ionicons } from '@expo/vector-icons';
@@ -104,7 +104,11 @@ export default function LandingScreen({ navigation }: Props) {
                     {/* Navbar */}
                     <View style={styles.navbar}>
                         <View style={styles.logoContainer}>
-                            <Ionicons name="infinite" size={32} color="#fff" />
+                            <Image 
+                                source={require('@/asset/Logo.png')} 
+                                style={styles.logoImage}
+                                resizeMode="contain"
+                            />
                             <Text style={styles.logoText}>Freelansync</Text>
                         </View>
                         <View style={styles.navButtons}>
@@ -169,10 +173,11 @@ export default function LandingScreen({ navigation }: Props) {
                 
                 {/* Image Section - Placed directly after gradient with negative margin to pull it up */}
                 <View style={styles.heroImageContainer}>
-                        <ImageBackground
+                    <ImageBackground
                         source={{ uri: 'https://fyp-frontend-topaz.vercel.app/assets/landing-page-image-D62JdLAF.jpg' }}
                         style={styles.heroImage}
-                        imageStyle={{ borderRadius: 24, resizeMode: 'cover' }}
+                        imageStyle={{ borderRadius: 24 }}
+                        resizeMode="cover"
                     >
                         <View style={styles.imageOverlay} />
                     </ImageBackground>
@@ -269,7 +274,11 @@ export default function LandingScreen({ navigation }: Props) {
                 <View style={styles.footer}>
                     <View style={styles.footerTop}>
                         <View style={styles.footerBrand}>
-                             <Ionicons name="infinite" size={24} color="#fff" style={{ marginBottom: 8 }} />
+                             <Image 
+                                source={require('@/asset/Logo.png')} 
+                                style={styles.footerLogoImage}
+                                resizeMode="contain"
+                            />
                             <Text style={styles.footerLogo}>Freelansync</Text>
                             <Text style={styles.footerDesc}>
                                 Connecting professionals for short tasks and long-term success.
@@ -314,7 +323,7 @@ const styles = StyleSheet.create({
     },
     heroGradient: {
         paddingTop: 20,
-        paddingHorizontal: 20,
+        paddingHorizontal: 7,
         paddingBottom: 40,
         borderBottomLeftRadius: 40,
         borderBottomRightRadius: 40,
@@ -335,6 +344,12 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
+        backgroundColor: 'transparent',
+    },
+    logoImage: {
+        width: 40,
+        height: 40,
+        backgroundColor: 'transparent',
     },
     logoText: {
         fontSize: 22,
@@ -344,7 +359,7 @@ const styles = StyleSheet.create({
     navButtons: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 12,
+        gap: 6,
     },
     navBtn: {
         paddingVertical: 8,
@@ -664,6 +679,11 @@ const styles = StyleSheet.create({
     },
     footerBrand: {
         maxWidth: 200,
+    },
+    footerLogoImage: {
+        width: 40,
+        height: 40,
+        marginBottom: 8,
     },
     footerLogo: {
         fontSize: 20,

@@ -88,6 +88,7 @@ export type FreelancerProfileOwnFromBackendType = {
     created_at: string;
     email: string;
     domains: string[];
+    experience?: string | number;
 };
 
 export type FreelancerFromBackendType = {
@@ -100,6 +101,23 @@ export type FreelancerFromBackendType = {
     domains: string[];
     skills: string[];
     created_at: string;
+    experience?: string | number;
+};
+
+// ============================================
+// REVIEW TYPES (From Freelansync)
+// ============================================
+
+export type FreelancerReviewFromBackendType = {
+    id: string;
+    comment: string;
+    stars: number;
+    created_at: string;
+    client: {
+        id: string;
+        username: string;
+        profile_pic: string;
+    };
 };
 
 // ============================================
@@ -120,10 +138,11 @@ export type ProjectFromBackendType = {
     title: string;
     description: string;
     budget: number;
+    original_budget: number;
     skills: string[];
     domains: string[];
     client: string; // client ID
-    status: "DRAFT";
+    status: "DRAFT" | "OPEN" | "ACTIVE" | "COMPLETED" | "DISPUTED";
     created_at: string;
 };
 
@@ -134,8 +153,9 @@ export type ProjectDetailsByIdFromBackendType = {
     created_at: string;
     domains: string[];
     skills: string[];
-    status: "DRAFT";
+    status: "DRAFT" | "OPEN" | "ACTIVE" | "COMPLETED" | "DISPUTED";
     budget: number;
+    original_budget: number;
 
     client: {
         id: string;
@@ -185,6 +205,7 @@ export type InvitationsForProjectFromBackendType = {
 export type InvitationsForFreelancerFromBackendType = {
     id: string;
     created_at: string;
+    status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
     client: {
         id: string;
         username: string;
@@ -245,22 +266,21 @@ export type MessageFromBackendType = {
     id: number;
     created_at: string;
     chat_id: string;
-    client_id: string;
-    freelancer_id: string;
-    message_text: string;
+    sender_id: string;
     sender_role: "freelancer" | "client";
+    message_text: string;
     file_type: string | null;
 };
 
 export type ProjectMessageFromBackendType = {
     id: number;
     created_at: string;
-    project_id: string;
-    sender_id: string;
+    project: string;
+    sender: string;
     sender_username: string;
     message_text: string;
     sender_profile_pic?: string | null;
-    sender_role?: 'client' | 'freelancer';
+    file_type?: string | null;
 };
 
 // ============================================
@@ -275,66 +295,71 @@ export type NotificationsFromBackendType = {
     to_user_id: string;
     created_at: string;
     project_id?: string;
-    milestone_id?: string;
     type:
         | "Invitation_Accepted"
         | "Invitation_Rejected"
         | "Invitation_Recieved"
         | "Milestone_Assigned"
-        | "Milestone_Submitted";
+        | "Dispute_Raised";
 };
 
 // ============================================
-// MILESTONE TYPES (From Freelansync)
+// MILESTONE TYPES
 // ============================================
 
-export type MilestoneStatusType = "LOCKED" | "IN_PROGRESS" | "COMPLETED" | "SUBMITTED";
+export type MilestoneStatusType = "LOCKED" | "IN_PROGRESS" | "SUBMITTED" | "COMPLETED" | "DISPUTED";
 
 export type MilestonesFromBackendType = {
     id: string;
     title: string;
-    description: string;
+    description?: string;
     amount: number;
-    project: string;
-    client: string;
-    created_at: string;
-    file: string | null;
-    freelancer: {
+    status: MilestoneStatusType;
+    project: {
+        id: string;
+        title: string;
+    };
+    client?: string;
+    freelancer?: {
         id: string;
         username: string;
         profile_pic: string;
     };
-    status: MilestoneStatusType;
+    created_at: string;
+    submission_description?: string;
+    file?: string;
 };
 
-export type MilestoneDetailsFromBackendType = {
+export type MilestoneDetailesFromBackendType = {
     id: string;
     title: string;
     description: string;
     amount: number;
-    client: {
-        id: string;
-        username: string;
-        profile_pic: string;
-        email: string;
-    };
+    status: MilestoneStatusType;
     created_at: string;
-    file: string | null;
-    submission_description: string | null;
-    freelancer: {
-        id: string;
-        profile_pic: string;
-        username: string;
-        domains: string[];
-        email: string;
-    };
+    submission_description?: string;
+    file?: string;
+    
     project: {
         id: string;
         title: string;
         description: string;
         budget: number;
         domains: string[];
-        status: "DRAFT";
+        status: string;
     };
-    status: MilestoneStatusType;
+    client: {
+        id: string;
+        username: string;
+        email: string;
+        profile_pic: string;
+        role: string;
+    };
+    freelancer: {
+        id: string;
+        username: string;
+        profile_pic: string;
+        domains: string[];
+        email: string;
+    };
 };

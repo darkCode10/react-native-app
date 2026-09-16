@@ -6,31 +6,31 @@ import { CustomHeader } from '../components/CustomHeader';
 import { Ionicons } from '@expo/vector-icons';
 import { getFocusedRouteNameFromRoute, useNavigation } from '@react-navigation/native';
 import { useUnseenChatsCount } from '../hooks/useUnseenChatsCount';
-import { getAllNotificationsForUser } from '@/api/notifications-functions';
-import { useQuery } from '@tanstack/react-query';
-import { userAuthStore } from '@/store/user-auth-store';
+import { useUnreadNotificationsCount } from '../hooks/useUnreadNotificationsCount';
+import { ClientStackParamList } from './types';
 
 // Import screens
 import ClientDashboardScreen from '../screens/client/ClientDashboardScreen';
 import CreateProjectScreen from '../screens/client/CreateProjectScreen';
 import AllProjectsScreen from '../screens/client/AllProjectsScreen';
 import ProjectDetailsScreen from '../screens/client/ProjectDetailsScreen';
+import CreateMilestoneScreen from '../screens/client/CreateMilestoneScreen';
 import PendingInvitationsScreen from '../screens/client/PendingInvitationsScreen';
 import ClientProfileScreen from '../screens/client/ClientProfileScreen';
 import ViewFreelancersScreen from '../screens/client/ViewFreelancersScreen';
 import FreelancerDetailsScreen from '../screens/client/FreelancerDetailsScreen';
-import NotificationsScreen from '../screens/shared/NotificationsScreen';
 import MilestoneDetailsScreen from '../screens/shared/MilestoneDetailsScreen';
-// Chat screens temporarily disabled during Freelansync DB migration
-// import ProjectChatScreen from '../screens/chat/ProjectChatScreen';
-// import ChatsScreen from '../screens/chat/ChatsScreen';
-// import IndividualChatScreen from '../screens/chat/IndividualChatScreen';
+import NotificationsScreen from '../screens/shared/NotificationsScreen';
+// Chat screens enabled with polling approach
+import ProjectChatScreen from '../screens/chat/ProjectChatScreen';
+import ChatsScreen from '../screens/chat/ChatsScreen';
+import IndividualChatScreen from '../screens/chat/IndividualChatScreen';
 
 const Tab = createBottomTabNavigator();
-const Stack = createNativeStackNavigator();
+const Stack = createNativeStackNavigator<ClientStackParamList>();
 
-// Chats Screen Wrapper with Search State - DISABLED
-/* function ChatsScreenWrapper() {
+// Chats Screen Wrapper with Search State
+function ChatsScreenWrapper() {
     const [searchQuery, setSearchQuery] = React.useState('');
     const unseenChatsCount = useUnseenChatsCount();
     const navigation = useNavigation();
@@ -43,6 +43,7 @@ const Stack = createNativeStackNavigator();
                     role="client" 
                     unseenChatsCount={unseenChatsCount}
                     hideChatIcon={true}
+                    hideNotificationIcon={true}
                     showSearchBar={true}
                     searchQuery={searchQuery}
                     onSearchChange={setSearchQuery}
@@ -53,7 +54,7 @@ const Stack = createNativeStackNavigator();
     }, [navigation, unseenChatsCount, searchQuery]);
 
     return <ChatsScreen searchQuery={searchQuery} />;
-} */
+}
 
 // All Projects Screen Wrapper with Search State
 function AllProjectsScreenWrapper() {
@@ -72,6 +73,7 @@ function AllProjectsScreenWrapper() {
                     searchQuery={searchQuery}
                     onSearchChange={setSearchQuery}
                     searchPlaceholder="Search projects..."
+                    hideNotificationIcon={true}
                 />
             ),
         });
@@ -97,6 +99,7 @@ function ViewFreelancersScreenWrapper() {
                     searchQuery={searchQuery}
                     onSearchChange={setSearchQuery}
                     searchPlaceholder="Search freelancers..."
+                    hideNotificationIcon={true}
                 />
             ),
         });
@@ -112,37 +115,55 @@ function DashboardStack() {
     return (
         <Stack.Navigator
             screenOptions={{
-                header: () => <CustomHeader title="Dashboard" role="client" unseenChatsCount={unseenChatsCount} />,
+                header: () => <CustomHeader title="Dashboard" role="client" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
                 animation: 'fade_from_bottom',
             }}
         >
-            <Stack.Screen name="DashboardMain" component={ClientDashboardScreen} />
+            <Stack.Screen name="ClientDashboard" component={ClientDashboardScreen} />
             <Stack.Screen
                 name="ProjectDetails"
                 component={ProjectDetailsScreen}
                 options={{
-                    header: () => <CustomHeader title="Project Details" role="client" unseenChatsCount={unseenChatsCount} />,
+                    header: () => <CustomHeader title="Project Details" role="client" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
+                }}
+            />
+            <Stack.Screen
+                name="CreateMilestone"
+                component={CreateMilestoneScreen}
+                options={{
+                    header: () => <CustomHeader title="Create Milestone" role="client" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
+                }}
+            />
+            <Stack.Screen
+                name="MilestoneDetails"
+                component={MilestoneDetailsScreen}
+                options={{
+                    header: () => <CustomHeader title="Milestone Details" role="client" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
                 }}
             />
             <Stack.Screen
                 name="PendingInvitations"
                 component={PendingInvitationsScreen}
                 options={{
-                    header: () => <CustomHeader title="Pending Invitations" role="client" unseenChatsCount={unseenChatsCount} />,
+                    header: () => <CustomHeader title="Pending Invitations" role="client" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
                 }}
+            />
+            <Stack.Screen 
+                name="ViewFreelancers" 
+                component={ViewFreelancersScreenWrapper}
             />
             <Stack.Screen 
                 name="FreelancerDetails" 
                 component={FreelancerDetailsScreen}
                 options={{
-                    header: () => <CustomHeader title="Freelancer Details" role="client" unseenChatsCount={unseenChatsCount} />,
+                    header: () => <CustomHeader title="Freelancer Details" role="client" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
                 }}
             />
             <Stack.Screen
                 name="ClientProfile"
                 component={ClientProfileScreen}
                 options={{
-                    header: () => <CustomHeader title="My Profile" role="client" unseenChatsCount={unseenChatsCount} />,
+                    header: () => <CustomHeader title="My Profile" role="client" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
                 }}
             />
             <Stack.Screen
@@ -152,14 +173,6 @@ function DashboardStack() {
                     headerShown: false,
                 }}
             />
-            <Stack.Screen
-                name="MilestoneDetails"
-                component={MilestoneDetailsScreen}
-                options={{
-                    headerShown: false,
-                }}
-            />
-            {/* Chat functionality temporarily disabled - will be re-enabled with new DB
             <Stack.Screen
                 name="Chats"
                 component={ChatsScreenWrapper}
@@ -172,7 +185,6 @@ function DashboardStack() {
                 name="IndividualChat" 
                 component={IndividualChatScreen}
             />
-            */}
         </Stack.Navigator>
     );
 }
@@ -184,11 +196,29 @@ function CreateProjectStack() {
     return (
         <Stack.Navigator
             screenOptions={{
-                header: () => <CustomHeader title="Create Project" role="client" unseenChatsCount={unseenChatsCount} />,
+                header: () => <CustomHeader title="Create Project" role="client" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
                 animation: 'slide_from_right',
             }}
         >
-            <Stack.Screen name="CreateProjectMain" component={CreateProjectScreen} />
+            <Stack.Screen name="CreateProject" component={CreateProjectScreen} />
+            <Stack.Screen
+                name="ClientProfile"
+                component={ClientProfileScreen}
+                options={{
+                    header: () => <CustomHeader title="My Profile" role="client" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
+                }}
+            />
+            <Stack.Screen
+                name="Notifications"
+                component={NotificationsScreen}
+                options={{
+                    headerShown: false,
+                }}
+            />
+            <Stack.Screen
+                name="Chats"
+                component={ChatsScreenWrapper}
+            />
         </Stack.Navigator>
     );
 }
@@ -203,36 +233,56 @@ function MyProjectsStack() {
                 animation: 'slide_from_left',
             }}
         >
-            <Stack.Screen name="AllProjectsMain" component={AllProjectsScreenWrapper} />
+            <Stack.Screen name="AllProjects" component={AllProjectsScreenWrapper} />
             <Stack.Screen 
                 name="ProjectDetails" 
                 component={ProjectDetailsScreen}
                 options={{
-                    header: () => <CustomHeader title="Project Details" role="client" unseenChatsCount={unseenChatsCount} />,
+                    header: () => <CustomHeader title="Project Details" role="client" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
                 }}
             />
             <Stack.Screen
-                name="PendingInvitations"
-                component={PendingInvitationsScreen}
+                name="CreateMilestone"
+                component={CreateMilestoneScreen}
                 options={{
-                    header: () => <CustomHeader title="Pending Invitations" role="client" unseenChatsCount={unseenChatsCount} />,
-                }}
-            />
-            <Stack.Screen 
-                name="FreelancerDetails" 
-                component={FreelancerDetailsScreen}
-                options={{
-                    header: () => <CustomHeader title="Freelancer Details" role="client" unseenChatsCount={unseenChatsCount} />,
+                    header: () => <CustomHeader title="Create Milestone" role="client" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
                 }}
             />
             <Stack.Screen
                 name="MilestoneDetails"
                 component={MilestoneDetailsScreen}
                 options={{
+                    header: () => <CustomHeader title="Milestone Details" role="client" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
+                }}
+            />
+            <Stack.Screen
+                name="PendingInvitations"
+                component={PendingInvitationsScreen}
+                options={{
+                    header: () => <CustomHeader title="Pending Invitations" role="client" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
+                }}
+            />
+            <Stack.Screen 
+                name="FreelancerDetails" 
+                component={FreelancerDetailsScreen}
+                options={{
+                    header: () => <CustomHeader title="Freelancer Details" role="client" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
+                }}
+            />
+            <Stack.Screen
+                name="ClientProfile"
+                component={ClientProfileScreen}
+                options={{
+                    header: () => <CustomHeader title="My Profile" role="client" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
+                }}
+            />
+            <Stack.Screen
+                name="Notifications"
+                component={NotificationsScreen}
+                options={{
                     headerShown: false,
                 }}
             />
-            {/* Chat functionality temporarily disabled - will be re-enabled with new DB
             <Stack.Screen 
                 name="ProjectChat" 
                 component={ProjectChatScreen}
@@ -245,7 +295,39 @@ function MyProjectsStack() {
                 name="IndividualChat" 
                 component={IndividualChatScreen}
             />
-            */}
+        </Stack.Navigator>
+    );
+}
+
+// Stack Navigator for Notifications
+function NotificationsStack() {
+    const unseenChatsCount = useUnseenChatsCount();
+    
+    return (
+        <Stack.Navigator>
+            <Stack.Screen 
+                name="NotificationsMain" 
+                component={NotificationsScreen} 
+                options={{ headerShown: false }} 
+            />
+            <Stack.Screen 
+                name="ProjectDetails" 
+                component={ProjectDetailsScreen}
+                options={{
+                    header: () => <CustomHeader title="Project Details" role="client" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
+                }}
+            />
+            <Stack.Screen
+                name="ClientProfile"
+                component={ClientProfileScreen}
+                options={{
+                    header: () => <CustomHeader title="My Profile" role="client" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
+                }}
+            />
+            <Stack.Screen
+                name="Chats"
+                component={ChatsScreenWrapper}
+            />
         </Stack.Navigator>
     );
 }
@@ -260,20 +342,36 @@ function FindFreelancersStack() {
                 animation: 'fade',
             }}
         >
-            <Stack.Screen name="ViewFreelancersMain" component={ViewFreelancersScreenWrapper} />
+            <Stack.Screen name="ViewFreelancers" component={ViewFreelancersScreenWrapper} />
             <Stack.Screen 
                 name="FreelancerDetails" 
                 component={FreelancerDetailsScreen}
                 options={{
-                    header: () => <CustomHeader title="Freelancer Details" role="client" unseenChatsCount={unseenChatsCount} />,
+                    header: () => <CustomHeader title="Freelancer Details" role="client" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
                 }}
             />
-            {/* Chat functionality temporarily disabled - will be re-enabled with new DB
+            <Stack.Screen
+                name="ClientProfile"
+                component={ClientProfileScreen}
+                options={{
+                    header: () => <CustomHeader title="My Profile" role="client" unseenChatsCount={unseenChatsCount} hideNotificationIcon={true} />,
+                }}
+            />
+            <Stack.Screen
+                name="Notifications"
+                component={NotificationsScreen}
+                options={{
+                    headerShown: false,
+                }}
+            />
+            <Stack.Screen
+                name="Chats"
+                component={ChatsScreenWrapper}
+            />
             <Stack.Screen 
                 name="IndividualChat" 
                 component={IndividualChatScreen}
             />
-            */}
         </Stack.Navigator>
     );
 }
@@ -284,7 +382,7 @@ const TabIcon = ({
     iconFilled, 
     label, 
     focused,
-    badgeCount = 0
+    badgeCount 
 }: { 
     iconOutline: keyof typeof Ionicons.glyphMap; 
     iconFilled: keyof typeof Ionicons.glyphMap; 
@@ -300,7 +398,7 @@ const TabIcon = ({
                 color={focused ? '#0532A9' : '#999'} 
                 style={focused && styles.tabIconFocused}
             />
-            {badgeCount > 0 && (
+            {badgeCount !== undefined && badgeCount > 0 && (
                 <View style={styles.badge}>
                     <Text style={styles.badgeText}>
                         {badgeCount > 9 ? '9+' : badgeCount}
@@ -313,19 +411,8 @@ const TabIcon = ({
 );
 
 export default function ClientNavigator() {
-    const { user } = userAuthStore();
+    const unreadNotificationsCount = useUnreadNotificationsCount();
     
-    // Fetch notifications to get unread count
-    const { data: notifications } = useQuery({
-        queryKey: ['get-all-notifications-for-user', user?.userId],
-        queryFn: () => getAllNotificationsForUser(user!.userId),
-        enabled: !!user?.userId,
-        refetchInterval: 20 * 1000,
-        refetchIntervalInBackground: true,
-    });
-
-    const unreadNotificationCount = notifications?.filter((n) => !n.read).length || 0;
-
     return (
         <Tab.Navigator
             screenOptions={{
@@ -354,18 +441,8 @@ export default function ClientNavigator() {
                 }}
                 listeners={({ navigation }) => ({
                     tabPress: (e) => {
-                        const state = navigation.getState();
-                        const routeIndex = state.routes.findIndex((r: any) => r.name === 'Dashboard');
-                        if (routeIndex !== -1) {
-                            const dashboardState = state.routes[routeIndex].state;
-                            if (dashboardState && dashboardState.index > 0) {
-                                e.preventDefault();
-                                navigation.reset({
-                                    index: 0,
-                                    routes: [{ name: 'Dashboard' }],
-                                });
-                            }
-                        }
+                        // Reset to the first route when tab is pressed
+                        navigation.navigate('Dashboard', { screen: 'DashboardMain' });
                     },
                 })}
             />
@@ -385,21 +462,34 @@ export default function ClientNavigator() {
                         ),
                     };
                 }}
+                listeners={({ navigation }) => ({
+                    tabPress: (e) => {
+                        navigation.navigate('CreateProject', { screen: 'CreateProjectMain' });
+                    },
+                })}
             />
             <Tab.Screen
                 name="Notifications"
-                component={NotificationsScreen}
-                options={{
-                    tabBarIcon: ({ focused }) => (
-                        <TabIcon 
-                            iconOutline="notifications-outline" 
-                            iconFilled="notifications" 
-                            label="Alerts" 
-                            focused={focused} 
-                            badgeCount={unreadNotificationCount}
-                        />
-                    ),
+                component={NotificationsStack}
+                options={({ route }) => {
+                    const routeName = getFocusedRouteNameFromRoute(route) ?? 'NotificationsMain';
+                    return {
+                        tabBarIcon: ({ focused }) => (
+                            <TabIcon 
+                                iconOutline="notifications-outline" 
+                                iconFilled="notifications" 
+                                label="Alerts" 
+                                focused={focused && routeName === 'NotificationsMain'} 
+                                badgeCount={unreadNotificationsCount}
+                            />
+                        ),
+                    };
                 }}
+                listeners={({ navigation }) => ({
+                    tabPress: (e) => {
+                        navigation.navigate('Notifications', { screen: 'NotificationsMain' });
+                    },
+                })}
             />
             <Tab.Screen
                 name="AllProjects"
@@ -421,18 +511,7 @@ export default function ClientNavigator() {
                 }}
                 listeners={({ navigation }) => ({
                     tabPress: (e) => {
-                        const state = navigation.getState();
-                        const routeIndex = state.routes.findIndex((r: any) => r.name === 'AllProjects');
-                        if (routeIndex !== -1) {
-                            const projectsState = state.routes[routeIndex].state;
-                            if (projectsState && projectsState.index > 0) {
-                                e.preventDefault();
-                                navigation.reset({
-                                    index: 0,
-                                    routes: [{ name: 'AllProjects' }],
-                                });
-                            }
-                        }
+                        navigation.navigate('AllProjects', { screen: 'AllProjectsMain' });
                     },
                 })}
             />
@@ -454,18 +533,7 @@ export default function ClientNavigator() {
                 }}
                 listeners={({ navigation }) => ({
                     tabPress: (e) => {
-                        const state = navigation.getState();
-                        const routeIndex = state.routes.findIndex((r: any) => r.name === 'ViewFreelancers');
-                        if (routeIndex !== -1) {
-                            const freelancersState = state.routes[routeIndex].state;
-                            if (freelancersState && freelancersState.index > 0) {
-                                e.preventDefault();
-                                navigation.reset({
-                                    index: 0,
-                                    routes: [{ name: 'ViewFreelancers' }],
-                                });
-                            }
-                        }
+                        navigation.navigate('ViewFreelancers', { screen: 'ViewFreelancersMain' });
                     },
                 })}
             />
@@ -482,10 +550,6 @@ const styles = StyleSheet.create({
         borderTopWidth: 1,
         borderTopColor: '#e0e0e0',
         elevation: 8,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
     },
     tabItem: {
         alignItems: 'center',
@@ -511,7 +575,7 @@ const styles = StyleSheet.create({
         position: 'absolute',
         top: -4,
         right: -8,
-        backgroundColor: '#DC2626',
+        backgroundColor: '#EF4444',
         borderRadius: 10,
         minWidth: 18,
         height: 18,
@@ -519,10 +583,10 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         paddingHorizontal: 4,
         borderWidth: 2,
-        borderColor: '#FFFFFF',
+        borderColor: '#fff',
     },
     badgeText: {
-        color: '#FFFFFF',
+        color: '#fff',
         fontSize: 10,
         fontWeight: '700',
     },

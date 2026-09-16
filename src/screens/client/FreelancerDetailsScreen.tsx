@@ -4,10 +4,9 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ClientStackParamList } from '@/navigation/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getFreelancerDetailsForClient } from '@/api/freelancer-functions';
-// Chat temporarily disabled during Freelansync DB migration
-// import { getChatsForUser, createEmptyChat } from '@/api/chat-functions';
 import { getAllProjectsForClient, getAllProjectsForFreelancer } from '@/api/project-functions';
 import { createInvitation, getAllInvitationsForFreelancer } from '@/api/project-invitations-functions';
+import { getAllReviewsForFreelancer } from '@/api/review-functions';
 import { Spinner, Avatar } from '@/components/ui';
 import { userAuthStore } from '@/store/user-auth-store';
 import { toast } from '@/utils/toast';
@@ -28,12 +27,15 @@ export default function FreelancerDetailsScreen({ route, navigation }: Props) {
         queryFn: () => getFreelancerDetailsForClient(freelancerId),
     });
 
+    const { data: reviews, isLoading: reviewsLoading } = useQuery({
+        queryKey: ['freelancer-reviews', freelancerId],
+        queryFn: () => getAllReviewsForFreelancer(freelancerId),
+    });
+
     const { data: clientProjects, isLoading: projectsLoading, refetch: refetchProjects } = useQuery({
         queryKey: ['clientProjectsForInvite', user?.userId, freelancerId],
         queryFn: async () => {
-            console.log('[FreelancerDetails] Fetching client projects for:', user?.userId);
             const projects = await getAllProjectsForClient(user!.userId);
-            console.log('[FreelancerDetails] Projects fetched:', projects?.length);
             return projects;
         },
         enabled: !!user?.userId && showProjectModal,
@@ -44,7 +46,6 @@ export default function FreelancerDetailsScreen({ route, navigation }: Props) {
     const { data: freelancerProjects } = useQuery({
         queryKey: ['freelancerProjects', freelancerId],
         queryFn: () => getAllProjectsForFreelancer(freelancerId),
-        enabled: showProjectModal,
     });
 
     const { data: pendingInvitations } = useQuery({
@@ -74,7 +75,6 @@ export default function FreelancerDetailsScreen({ route, navigation }: Props) {
     // Refetch projects when modal opens
     useEffect(() => {
         if (showProjectModal && user?.userId) {
-            console.log('[FreelancerDetails] Modal opened, refetching projects...');
             refetchProjects();
         }
     }, [showProjectModal, user?.userId, refetchProjects]);
@@ -82,38 +82,13 @@ export default function FreelancerDetailsScreen({ route, navigation }: Props) {
     // Debug logging
     useEffect(() => {
         if (showProjectModal) {
-            console.log('[FreelancerDetails] Modal opened');
-            console.log('[FreelancerDetails] User ID:', user?.userId);
-            console.log('[FreelancerDetails] Client Projects:', clientProjects?.length, clientProjects);
-            console.log('[FreelancerDetails] Freelancer Projects:', freelancerProjects?.length);
-            console.log('[FreelancerDetails] Pending Invitations:', pendingInvitations?.length);
-            console.log('[FreelancerDetails] Available Projects:', availableProjects.length);
-            console.log('[FreelancerDetails] Projects Loading:', projectsLoading);
             
             if (availableProjects.length > 0) {
-                console.log('[FreelancerDetails] First project:', availableProjects[0]);
             }
         }
     }, [showProjectModal, clientProjects, freelancerProjects, pendingInvitations, availableProjects, projectsLoading, user]);
 
     // Chat temporarily disabled during Freelansync DB migration
-    /* const createChatMutation = useMutation({
-        mutationFn: createEmptyChat,
-        onSuccess: (chatId) => {
-            // Navigate to the new chat
-            navigation.navigate('IndividualChat', {
-                chatId: chatId,
-                freelancerId: freelancerId,
-                clientId: user!.userId,
-                otherUserName: freelancer?.username || 'Freelancer',
-                otherUserProfilePic: freelancer?.profile_pic || null,
-            });
-        },
-        onError: () => {
-            toast.error('Failed to create chat');
-        },
-    }); */
-
     const inviteMutation = useMutation({
         mutationFn: createInvitation,
         onSuccess: (_, variables) => {
@@ -126,7 +101,6 @@ export default function FreelancerDetailsScreen({ route, navigation }: Props) {
             queryClient.invalidateQueries({ queryKey: ['project', variables.projectId] });
         },
         onError: (error: Error) => {
-            console.log('Error sending invitation:', error.message);
             if (error.message.includes('duplicate') || error.message.includes('unique')) {
                 toast.warning('Invitation already sent to this freelancer');
             } else {
@@ -136,48 +110,25 @@ export default function FreelancerDetailsScreen({ route, navigation }: Props) {
     });
 
     const handleSendMessage = async () => {
-        // Chat temporarily disabled during Freelansync DB migration
-        toast.warning('Chat feature is temporarily unavailable');
-        return;
-        
-        /* Original code - will be restored when chat is re-enabled:
         if (!user?.userId) {
             toast.error('User not found');
             return;
         }
 
         try {
-            // Check if chat already exists
-            const existingChats = await getChatsForUser({
-                userId: user.userId,
-                userRole: user.role,
-                getDetails: false,
+            // Navigate to IndividualChat screen with 'new' chatId
+            // The IndividualChatScreen will check if chat already exists
+            // and either open existing chat or create a new one
+            navigation.navigate('IndividualChat', {
+                chatId: 'new', // Will be resolved to actual chat ID in IndividualChatScreen
+                freelancerId: freelancerId,
+                clientId: user.userId,
+                otherUserName: freelancer?.username || 'Freelancer',
+                otherUserProfilePic: freelancer?.profile_pic || null,
             });
-
-            const chatFound = existingChats.find(
-                (chat) => chat.freelancer_id === freelancerId && chat.client_id === user.userId
-            );
-
-            if (chatFound) {
-                // Navigate to existing chat
-                navigation.navigate('IndividualChat', {
-                    chatId: chatFound.id,
-                    freelancerId: freelancerId,
-                    clientId: user.userId,
-                    otherUserName: freelancer?.username || 'Freelancer',
-                    otherUserProfilePic: freelancer?.profile_pic || null,
-                });
-            } else {
-                // Create new empty chat
-                createChatMutation.mutate({
-                    freelancerId: freelancerId,
-                    clientId: user.userId,
-                });
-            }
-        } catch (error) {
-            toast.error('Failed to load chats');
+        } catch (error: any) {
+            toast.error(error?.message || 'Failed to open chat');
         }
-        */
     };
 
     const handleInviteToProject = (projectId: string) => {
@@ -209,6 +160,50 @@ export default function FreelancerDetailsScreen({ route, navigation }: Props) {
             </View>
         );
     }
+
+    // Calculate real statistics
+    const averageRating = reviews && reviews.length > 0 
+        ? (reviews.reduce((sum, review) => sum + (review.stars || 0), 0) / reviews.length).toFixed(1)
+        : '0.0';
+    
+    const reviewsCount = reviews?.length || 0;
+    const projectsCount = freelancerProjects?.length || 0;
+    
+    // Use real experience from database and format it
+    const formatExperience = () => {
+        const exp = freelancer.experience;
+        
+        // Handle null or undefined
+        if (exp === null || exp === undefined) return 'N/A';
+        
+        // If it's a number, add "years" or "year"
+        if (typeof exp === 'number') {
+            return exp === 1 ? '1 Year' : `${exp} Years`;
+        }
+        
+        // If it's a string
+        if (typeof exp === 'string') {
+            const trimmed = exp.trim();
+            if (!trimmed) return 'N/A';
+            
+            // If experience already contains "year" or "years", return as is
+            if (trimmed.toLowerCase().includes('year')) return trimmed;
+            
+            // Try to parse as number
+            const num = parseFloat(trimmed);
+            if (!isNaN(num)) {
+                return num === 1 ? '1 Year' : `${trimmed} Years`;
+            }
+            
+            // Otherwise return as is
+            return trimmed;
+        }
+        
+        return 'N/A';
+    };
+    
+    const experience = formatExperience();
+    
 
     return (
         <View style={styles.container}>
@@ -246,17 +241,17 @@ export default function FreelancerDetailsScreen({ route, navigation }: Props) {
                             <View style={styles.statsRow}>
                                 <View style={styles.statItem}>
                                     <Ionicons name="star" size={16} color="#FBBF24" />
-                                    <Text style={styles.statText}>4.9 (24)</Text>
+                                    <Text style={styles.statText}>{averageRating} ({reviewsCount})</Text>
                                 </View>
                                 <View style={styles.statDivider} />
                                 <View style={styles.statItem}>
                                     <Ionicons name="briefcase-outline" size={16} color="#E0E7FF" />
-                                    <Text style={styles.statText}>12 Projects</Text>
+                                    <Text style={styles.statText}>{projectsCount} {projectsCount === 1 ? 'Project' : 'Projects'}</Text>
                                 </View>
                                 <View style={styles.statDivider} />
                                 <View style={styles.statItem}>
                                     <Ionicons name="ribbon-outline" size={16} color="#E0E7FF" />
-                                    <Text style={styles.statText}>Exp: 2+ Years</Text>
+                                    <Text style={styles.statText}>Exp: {experience}</Text>
                                 </View>
                             </View>
 
@@ -337,28 +332,72 @@ export default function FreelancerDetailsScreen({ route, navigation }: Props) {
                         </View>
                     </View>
 
+                    {/* Reviews Section */}
+                    <View style={styles.section}>
+                        <View style={styles.sectionHeader}>
+                            <Ionicons name="star-outline" size={20} color="#0532A9" />
+                            <Text style={styles.sectionTitle}>Reviews</Text>
+                        </View>
+                        
+                        {reviewsLoading ? (
+                            <View style={styles.card}>
+                                <Spinner />
+                            </View>
+                        ) : reviews && reviews.length > 0 ? (
+                            <View style={styles.reviewsContainer}>
+                                {reviews.filter(review => review && review.client && review.comment).map((review) => (
+                                    <View key={review.id} style={styles.reviewCard}>
+                                        {/* Review Header */}
+                                        <View style={styles.reviewHeader}>
+                                            <View style={styles.reviewerInfo}>
+                                                <Avatar 
+                                                    source={review.client?.profile_pic} 
+                                                    fallback={review.client?.username || 'User'} 
+                                                    size={40} 
+                                                />
+                                                <View style={styles.reviewerDetails}>
+                                                    <Text style={styles.reviewerName}>{review.client?.username || 'Anonymous'}</Text>
+                                                    <Text style={styles.reviewDate}>
+                                                        {new Date(review.created_at).toLocaleDateString('en-US', {
+                                                            day: 'numeric',
+                                                            month: 'long',
+                                                            year: 'numeric',
+                                                        })}
+                                                    </Text>
+                                                </View>
+                                            </View>
+                                            
+                                            {/* Star Rating */}
+                                            <View style={styles.starsRow}>
+                                                {[...Array(review.stars || 0)].map((_, i) => (
+                                                    <Ionicons key={i} name="star" size={16} color="#F59E0B" />
+                                                ))}
+                                                {[...Array(Math.max(0, 5 - (review.stars || 0)))].map((_, i) => (
+                                                    <Ionicons key={`empty-${i}`} name="star-outline" size={16} color="#D1D5DB" />
+                                                ))}
+                                            </View>
+                                        </View>
+                                        
+                                        {/* Review Comment */}
+                                        <Text style={styles.reviewComment}>{review.comment}</Text>
+                                    </View>
+                                ))}
+                            </View>
+                        ) : (
+                            <View style={styles.card}>
+                                <View style={styles.emptyReviews}>
+                                    <Ionicons name="star-outline" size={48} color="#D1D5DB" />
+                                    <Text style={styles.emptyReviewsTitle}>No Reviews Yet</Text>
+                                    <Text style={styles.emptyReviewsText}>
+                                        This freelancer hasn't received any reviews yet.
+                                    </Text>
+                                </View>
+                            </View>
+                        )}
+                    </View>
 
                 </View>
             </ScrollView>
-
-            {/* Bottom Actions - Removed as moved to header */}
-            {/* <View style={styles.bottomActions}>
-                <Pressable 
-                    style={[styles.actionButton, styles.messageButton]}
-                    onPress={handleSendMessage}
-                >
-                    <Ionicons name="chatbubble-outline" size={20} color="#0532A9" />
-                    <Text style={styles.messageButtonText}>Message</Text>
-                </Pressable>
-
-                <Pressable 
-                    style={[styles.actionButton, styles.inviteButton]}
-                    onPress={() => setShowProjectModal(true)}
-                >
-                    <Ionicons name="person-add-outline" size={20} color="#fff" />
-                    <Text style={styles.inviteButtonText}>Invite to Project</Text>
-                </Pressable>
-            </View> */}
 
             {/* Project Selection Modal */}
             <Modal
@@ -403,21 +442,40 @@ export default function FreelancerDetailsScreen({ route, navigation }: Props) {
                                     <Pressable
                                         style={[
                                             styles.projectCard,
-                                            (item.isFreelancerAdded || item.hasPendingInvitation) && styles.projectCardDisabled
+                                            (item.isFreelancerAdded || item.hasPendingInvitation || item.status === 'COMPLETED' || item.status === 'DISPUTED') && styles.projectCardDisabled
                                         ]}
-                                        onPress={() => !item.isFreelancerAdded && !item.hasPendingInvitation && handleInviteToProject(item.id)}
-                                        disabled={item.isFreelancerAdded || item.hasPendingInvitation || inviteMutation.isPending}
+                                        onPress={() => 
+                                            !item.isFreelancerAdded && 
+                                            !item.hasPendingInvitation && 
+                                            item.status !== 'COMPLETED' && 
+                                            item.status !== 'DISPUTED' && 
+                                            handleInviteToProject(item.id)
+                                        }
+                                        disabled={
+                                            item.isFreelancerAdded || 
+                                            item.hasPendingInvitation || 
+                                            item.status === 'COMPLETED' || 
+                                            item.status === 'DISPUTED' || 
+                                            inviteMutation.isPending
+                                        }
                                     >
                                         <View style={styles.projectHeader}>
-                                            <View style={styles.projectIcon}>
+                                            <View style={[
+                                                styles.projectIcon,
+                                                (item.status === 'COMPLETED' || item.status === 'DISPUTED') && { backgroundColor: '#F3F4F6' }
+                                            ]}>
                                                 <Ionicons 
                                                     name={
+                                                        item.status === 'COMPLETED' ? "checkmark-done-circle" :
+                                                        item.status === 'DISPUTED' ? "alert-circle" :
                                                         item.isFreelancerAdded ? "checkmark-circle" : 
                                                         item.hasPendingInvitation ? "time-outline" : 
                                                         "briefcase-outline"
                                                     } 
                                                     size={24} 
                                                     color={
+                                                        item.status === 'COMPLETED' ? "#9CA3AF" :
+                                                        item.status === 'DISPUTED' ? "#EF4444" :
                                                         item.isFreelancerAdded ? "#10B981" : 
                                                         item.hasPendingInvitation ? "#F59E0B" : 
                                                         "#0532A9"
@@ -425,23 +483,35 @@ export default function FreelancerDetailsScreen({ route, navigation }: Props) {
                                                 />
                                             </View>
                                             <View style={styles.projectInfo}>
-                                                <Text style={styles.projectTitle} numberOfLines={1}>
+                                                <Text style={[
+                                                    styles.projectTitle,
+                                                    (item.status === 'COMPLETED' || item.status === 'DISPUTED') && { color: '#6B7280' }
+                                                ]} numberOfLines={1}>
                                                     {item.title}
                                                 </Text>
                                                 <Text style={styles.projectBudget}>
                                                     Rs {item.budget.toLocaleString()}
                                                 </Text>
                                             </View>
-                                            {item.isFreelancerAdded && (
+                                            
+                                            {/* Status Badges */}
+                                            {item.status === 'COMPLETED' ? (
+                                                <View style={[styles.addedBadge, { backgroundColor: '#F3F4F6' }]}>
+                                                    <Text style={[styles.addedBadgeText, { color: '#6B7280' }]}>Completed</Text>
+                                                </View>
+                                            ) : item.status === 'DISPUTED' ? (
+                                                <View style={[styles.addedBadge, { backgroundColor: '#FEF2F2' }]}>
+                                                    <Text style={[styles.addedBadgeText, { color: '#EF4444' }]}>Disputed</Text>
+                                                </View>
+                                            ) : item.isFreelancerAdded ? (
                                                 <View style={styles.addedBadge}>
                                                     <Text style={styles.addedBadgeText}>Added</Text>
                                                 </View>
-                                            )}
-                                            {item.hasPendingInvitation && !item.isFreelancerAdded && (
+                                            ) : item.hasPendingInvitation ? (
                                                 <View style={styles.pendingBadge}>
                                                     <Text style={styles.pendingBadgeText}>Pending</Text>
                                                 </View>
-                                            )}
+                                            ) : null}
                                         </View>
                                     </Pressable>
                                 )}
@@ -827,5 +897,72 @@ const styles = StyleSheet.create({
     backButtonText: {
         color: '#374151',
         fontWeight: '600',
+    },
+    // Reviews Styles
+    reviewsContainer: {
+        gap: 12,
+    },
+    reviewCard: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        padding: 16,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+        elevation: 2,
+        borderWidth: 1,
+        borderColor: '#F3F4F6',
+    },
+    reviewHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        marginBottom: 12,
+    },
+    reviewerInfo: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        flex: 1,
+    },
+    reviewerDetails: {
+        flex: 1,
+    },
+    reviewerName: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: '#111827',
+        marginBottom: 2,
+    },
+    reviewDate: {
+        fontSize: 12,
+        color: '#9CA3AF',
+    },
+    starsRow: {
+        flexDirection: 'row',
+        gap: 2,
+    },
+    reviewComment: {
+        fontSize: 14,
+        color: '#374151',
+        lineHeight: 20,
+    },
+    emptyReviews: {
+        alignItems: 'center',
+        paddingVertical: 32,
+    },
+    emptyReviewsTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#111827',
+        marginTop: 12,
+        marginBottom: 4,
+    },
+    emptyReviewsText: {
+        fontSize: 14,
+        color: '#6B7280',
+        textAlign: 'center',
+        maxWidth: 250,
     },
 });

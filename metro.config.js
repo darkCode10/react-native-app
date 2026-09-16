@@ -3,7 +3,7 @@ const path = require('path');
 
 const config = getDefaultConfig(__dirname);
 
-// Configure path aliases
+// Configure path aliases for both development and production
 config.resolver.extraNodeModules = {
   '@': path.resolve(__dirname, 'src'),
 };

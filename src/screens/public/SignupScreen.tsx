@@ -7,7 +7,8 @@ import {
     Pressable,
     KeyboardAvoidingView,
     Platform,
-    Dimensions
+    Dimensions,
+    Image
 } from 'react-native';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -32,6 +33,7 @@ export default function SignupScreen({ navigation }: any) {
     const [skills, setSkills] = useState<string[]>([]);
     const [domains, setDomains] = useState<string[]>([]);
     const [description, setDescription] = useState('');
+    const [experience, setExperience] = useState('');
     const [loading, setLoading] = useState(false);
 
     async function handleSignup() {
@@ -40,8 +42,8 @@ export default function SignupScreen({ navigation }: any) {
             return;
         }
 
-        if (role === 'freelancer' && (skills.length === 0 || domains.length === 0 || !description)) {
-            toast.warning('Please add domains, skills and description!');
+        if (role === 'freelancer' && (skills.length === 0 || domains.length === 0 || !description || !experience)) {
+            toast.warning('Please add domains, skills, description and experience!');
             return;
         }
 
@@ -130,6 +132,7 @@ export default function SignupScreen({ navigation }: any) {
                         skills: skills,
                         domains: domains,
                         description: description,
+                        experience: parseInt(experience) || 0,
                         role: 'freelancer',
                     })
                     .select()
@@ -178,6 +181,13 @@ export default function SignupScreen({ navigation }: any) {
                         <View style={[styles.decorativeCircle, { bottom: -20, right: -20, width: 100, height: 100, opacity: 0.05 }]} />
                         
                         <View style={styles.headerContent}>
+                            <View style={styles.logoContainer}>
+                                <Image 
+                                    source={require('@/asset/Logo.png')} 
+                                    style={styles.logoImage}
+                                    resizeMode="contain"
+                                />
+                            </View>
                             <Text style={styles.headerTitle}>Join Us</Text>
                             <Text style={styles.headerSubtitle}>Create your account to get started</Text>
                         </View>
@@ -251,7 +261,7 @@ export default function SignupScreen({ navigation }: any) {
                         </View>
 
                         {/* Role Selector */}
-                        <Text style={styles.sectionLabel}>I want to...</Text>
+                        <Text style={styles.sectionLabel}>Join as a...</Text>
                         <View style={styles.roleContainer}>
                             <Pressable 
                                 style={[styles.roleCard, role === 'client' && styles.roleCardActive]}
@@ -260,7 +270,7 @@ export default function SignupScreen({ navigation }: any) {
                                 <View style={[styles.roleIcon, role === 'client' ? styles.roleIconActive : styles.roleIconInactive]}>
                                     <Ionicons name="briefcase" size={24} color={role === 'client' ? '#fff' : '#6B7280'} />
                                 </View>
-                                <Text style={[styles.roleText, role === 'client' && styles.roleTextActive]}>Hire Talent</Text>
+                                <Text style={[styles.roleText, role === 'client' && styles.roleTextActive]}>Client</Text>
                             </Pressable>
 
                             <Pressable 
@@ -270,7 +280,7 @@ export default function SignupScreen({ navigation }: any) {
                                 <View style={[styles.roleIcon, role === 'freelancer' ? styles.roleIconActive : styles.roleIconInactive]}>
                                     <Ionicons name="person" size={24} color={role === 'freelancer' ? '#fff' : '#6B7280'} />
                                 </View>
-                                <Text style={[styles.roleText, role === 'freelancer' && styles.roleTextActive]}>Find Work</Text>
+                                <Text style={[styles.roleText, role === 'freelancer' && styles.roleTextActive]}>Freelancer</Text>
                             </Pressable>
                         </View>
 
@@ -294,12 +304,29 @@ export default function SignupScreen({ navigation }: any) {
                                     </View>
                                 </View>
 
+                                <View style={styles.inputContainer}>
+                                    <Text style={styles.inputLabel}>Years of Experience</Text>
+                                    <View style={styles.inputWrapper}>
+                                        <Ionicons name="briefcase-outline" size={20} color="#9CA3AF" style={styles.inputIcon} />
+                                        <Input
+                                            label=""
+                                            value={experience}
+                                            onChangeText={setExperience}
+                                            placeholder="Enter years of experience (e.g., 3)"
+                                            keyboardType="numeric"
+                                            style={styles.seamlessInput}
+                                            placeholderTextColor="#9CA3AF"
+                                            containerStyle={{ marginBottom: 0 }}
+                                        />
+                                    </View>
+                                </View>
+
                                 <Text style={styles.inputLabel}>Domains</Text>
                                 <View style={styles.skillsWrapper}>
                                     <DomainPicker value={domains} onChange={setDomains} />
                                 </View>
 
-                                <Text style={styles.inputLabel}>Skills</Text>
+                                <Text style={[styles.inputLabel, { marginTop: 16 }]}>Skills</Text>
                                 <View style={styles.skillsWrapper}>
                                     <SkillsPicker value={skills} onChange={setSkills} />
                                 </View>
@@ -313,7 +340,6 @@ export default function SignupScreen({ navigation }: any) {
                             loading={loading}
                             style={styles.signupButton}
                             textStyle={styles.signupButtonText}
-                            icon={<Ionicons name="arrow-forward" size={20} color="#fff" />}
                         />
 
                         <View style={styles.footer}>
@@ -339,7 +365,7 @@ const styles = StyleSheet.create({
         paddingBottom: 40,
     },
     headerBackground: {
-        height: 240,
+        height: 280,
         width: '100%',
         marginBottom: -60,
     },
@@ -361,11 +387,22 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         paddingBottom: 40,
     },
+    logoContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 4,
+        backgroundColor: 'transparent',
+    },
+    logoImage: {
+        width: 80,
+        height: 80,
+        backgroundColor: 'transparent',
+    },
     headerTitle: {
         fontSize: 32,
         fontWeight: 'bold',
         color: '#fff',
-        marginBottom: 8,
+        marginBottom: 4,
     },
     headerSubtitle: {
         fontSize: 16,
@@ -378,10 +415,6 @@ const styles = StyleSheet.create({
         backgroundColor: '#fff',
         borderRadius: 24,
         padding: 24,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 12,
         elevation: 5,
     },
     inputContainer: {
@@ -501,10 +534,6 @@ const styles = StyleSheet.create({
         backgroundColor: '#0532A9',
         height: 56,
         borderRadius: 16,
-        shadowColor: '#0532A9',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
         elevation: 4,
         flexDirection: 'row',
         justifyContent: 'center',

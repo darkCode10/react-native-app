@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Animated, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, Animated, Dimensions, Easing } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { ClientStackParamList } from '@/navigation/types';
@@ -7,18 +7,23 @@ import { userAuthStore } from '@/store/user-auth-store';
 import { Card, Spinner, Avatar } from '@/components/ui';
 import { useQuery } from '@tanstack/react-query';
 import { getAllProjectsForClient } from '@/api/project-functions';
+import { getAllMilestonesForClient } from '@/api/milestone-functions';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import Svg, { Circle, G, Text as SvgText } from 'react-native-svg';
+
+// Wrapper to filter out 'collapsable' prop which causes warnings on SVG elements
+const WrappedCircle = React.forwardRef((props: any, ref: any) => {
+    const { collapsable, ...otherProps } = props;
+    return <Circle {...otherProps} ref={ref} />;
+});
+
+const AnimatedCircle = Animated.createAnimatedComponent(WrappedCircle);
+const AnimatedText = Animated.createAnimatedComponent(Text);
 
 type Props = NativeStackScreenProps<ClientStackParamList, 'ClientDashboard'>;
 
 const { width } = Dimensions.get('window');
-
-const RECENT_ACTIVITY = [
-    { id: 1, type: 'Milestone', date: 'Jan 22', title: 'Milestone Approved', desc: "Final testing for 'Mobile App MVP'", icon: 'flag' },
-    { id: 2, type: 'Payment', date: 'Jan 18', title: 'Payment Sent', desc: 'Second installment released', icon: 'card' },
-    { id: 3, type: 'Milestone', date: 'Jan 15', title: 'Milestone Submitted', desc: 'Development phase 2 ready for review', icon: 'time' },
-];
 
 export default function ClientDashboardScreen({ navigation }: Props) {
     const { user } = userAuthStore();
@@ -27,12 +32,14 @@ export default function ClientDashboardScreen({ navigation }: Props) {
     // Animation values
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const slideAnim = useRef(new Animated.Value(50)).current;
+    const chartAnim = useRef(new Animated.Value(0)).current;
 
     useFocusEffect(
         useCallback(() => {
             // Reset animations
             fadeAnim.setValue(0);
             slideAnim.setValue(50);
+            chartAnim.setValue(0);
 
             // Start animations
             Animated.parallel([
@@ -46,26 +53,78 @@ export default function ClientDashboardScreen({ navigation }: Props) {
                     duration: 600,
                     useNativeDriver: true,
                 }),
+                Animated.timing(chartAnim, {
+                    toValue: 1,
+                    duration: 1200,
+                    easing: Easing.out(Easing.exp),
+                    useNativeDriver: false,
+                }),
             ]).start();
         }, [])
     );
 
     // Fetch real projects
-    const { data: projects, isLoading, error } = useQuery({
+    const { data: projects, isLoading, error, refetch: refetchProjects } = useQuery({
         queryKey: ['clientProjects', user?.userId],
         queryFn: () => getAllProjectsForClient(user?.userId || ''),
         enabled: !!user?.userId,
     });
 
-    // Calculate stats
-    const totalProjects = projects?.length || 0;
-    const completedProjects = 0; // Freelansync only has DRAFT status
-    const activeProjects = projects?.slice(0, 3) || [];
-    const ongoingProjects = activeProjects.length; 
-    
-    const totalSpent = projects?.reduce((acc, p) => acc + parseFloat(p.budget.toString()), 0) || 50000;
+    // Fetch milestones to calculate project status
+    const { data: allMilestones, refetch: refetchMilestones } = useQuery({
+        queryKey: ['clientMilestones', user?.userId],
+        queryFn: () => getAllMilestonesForClient(user?.userId || ''),
+        enabled: !!user?.userId,
+    });
 
-    const completionRate = totalProjects > 0 ? (completedProjects / totalProjects) * 100 : 70;
+    useFocusEffect(
+        useCallback(() => {
+            refetchProjects();
+            refetchMilestones();
+        }, [refetchProjects, refetchMilestones])
+    );
+
+    // Calculate stats based on real data
+    const totalProjects = projects?.length || 0;
+    const activeProjects = projects?.filter(p => p.status === 'ACTIVE') || [];
+    const completedProjects = projects?.filter(p => p.status === 'COMPLETED').length || 0;
+    const activeProjectsList = activeProjects.slice(0, 3);
+    
+    const totalSpent = projects?.reduce((acc, p) => acc + parseFloat(p.budget.toString()), 0) || 0;
+
+    const completionRate = totalProjects > 0 ? Math.round((completedProjects / totalProjects) * 100) : 0;
+
+    // Get active milestones (IN_PROGRESS or SUBMITTED)
+    const activeMilestones = allMilestones?.filter(m => 
+        m.status === 'IN_PROGRESS' || m.status === 'SUBMITTED'
+    ).slice(0, 5) || [];
+
+    // Map projects to budget ranges (like web version)
+    const mapProjectsToBudgetRanges = () => {
+        const bins: Record<string, number> = {
+            "5k-20k": 0,
+            "20k-50k": 0,
+            "50k-100k": 0,
+            "100k+": 0,
+        };
+
+        projects?.forEach((p) => {
+            const budget = p.original_budget || p.budget;
+
+            if (budget <= 20000) bins["5k-20k"]++;
+            else if (budget <= 50000) bins["20k-50k"]++;
+            else if (budget <= 100000) bins["50k-100k"]++;
+            else bins["100k+"]++;
+        });
+
+        return Object.entries(bins).map(([range, count]) => ({
+            range,
+            count,
+        }));
+    };
+
+    const budgetRangeData = mapProjectsToBudgetRanges();
+    const maxCount = Math.max(...budgetRangeData.map(d => d.count), 1);
 
     return (
         <View style={styles.container}>
@@ -115,7 +174,7 @@ export default function ClientDashboardScreen({ navigation }: Props) {
                             <View style={[styles.statIconCircle, { backgroundColor: 'rgba(245, 158, 11, 0.2)' }]}>
                                 <Ionicons name="cash" size={18} color="#FCD34D" />
                             </View>
-                            <Text style={styles.statValue}>${(totalSpent/1000).toFixed(1)}k</Text>
+                            <Text style={styles.statValue}>${totalSpent > 1000 ? (totalSpent/1000).toFixed(1) + 'k' : totalSpent}</Text>
                             <Text style={styles.statLabel}>Spent</Text>
                         </View>
                     </View>
@@ -134,58 +193,100 @@ export default function ClientDashboardScreen({ navigation }: Props) {
                                 <Ionicons name="pie-chart-outline" size={20} color="#6B7280" />
                             </View>
                             <View style={styles.donutContainer}>
-                                 <View style={styles.donutWrapper}>
-                                    {/* Completed Segment (Base) */}
-                                    <View style={[styles.donutCircle, { borderColor: '#4F46E5' }]} />
-                                    {/* Active Segment (Overlay) */}
-                                    <View style={[styles.donutCircle, { 
-                                        borderColor: '#10B981', 
-                                        transform: [{ rotate: '45deg' }],
-                                        borderRightColor: 'transparent',
-                                        borderBottomColor: 'transparent',
-                                        position: 'absolute'
-                                    }]} />
-                                    <View style={styles.donutHole}>
-                                        <Text style={styles.donutValue}>{completionRate.toFixed(0)}%</Text>
-                                        <Text style={styles.donutLabel}>Done</Text>
+                                {totalProjects === 0 ? (
+                                    <View style={{ alignItems: 'center', flex: 1, justifyContent: 'center' }}>
+                                        <Text style={{ color: '#9CA3AF', fontSize: 14 }}>No projects yet</Text>
                                     </View>
-                                </View>
-                                <View style={styles.donutLegend}>
-                                    <View style={styles.legendItem}>
-                                        <View style={[styles.legendDot, { backgroundColor: '#4F46E5' }]} />
-                                        <Text style={styles.legendText}>Completed</Text>
-                                    </View>
-                                    <View style={styles.legendItem}>
-                                        <View style={[styles.legendDot, { backgroundColor: '#10B981' }]} />
-                                        <Text style={styles.legendText}>Active</Text>
-                                    </View>
-                                </View>
+                                ) : (
+                                    <>
+                                        <DonutChart 
+                                            completed={completedProjects} 
+                                            active={activeProjects.length} 
+                                            percentage={completionRate} 
+                                            animValue={chartAnim}
+                                        />
+                                        <View style={styles.donutLegend}>
+                                            <View style={styles.legendItem}>
+                                                <View style={[styles.legendDot, { backgroundColor: '#A855F7' }]} />
+                                                <Text style={styles.legendText}>Completed ({completedProjects})</Text>
+                                            </View>
+                                            <View style={styles.legendItem}>
+                                                <View style={[styles.legendDot, { backgroundColor: '#10B981' }]} />
+                                                <Text style={styles.legendText}>Active ({activeProjects.length})</Text>
+                                            </View>
+                                        </View>
+                                    </>
+                                )}
                             </View>
                         </View>
 
-                        {/* Spending Trend Bar Chart */}
+                        {/* Projects Budget Distribution Bar Chart */}
                         <View style={styles.chartCard}>
                             <View style={styles.cardHeader}>
-                                <Text style={styles.cardTitle}>Spending Trend</Text>
+                                <Text style={styles.cardTitle}>Projects Budget Distribution</Text>
                                 <Ionicons name="bar-chart-outline" size={20} color="#6B7280" />
                             </View>
-                            <View style={styles.barChartContainer}>
-                                {[35, 60, 45, 80, 55, 90].map((value, index) => (
-                                    <View key={index} style={styles.barColumn}>
-                                        <View style={styles.barTrack}>
-                                            <LinearGradient
-                                                colors={['#0532A9', '#4F46E5']}
-                                                style={[styles.barFill, { height: `${value}%` }]}
-                                                start={{ x: 0, y: 1 }}
-                                                end={{ x: 0, y: 0 }}
-                                            />
+                            <Text style={styles.chartSubtitle}>
+                                Distribution of projects across budget ranges
+                            </Text>
+                            {totalProjects === 0 ? (
+                                <View style={styles.emptyChartState}>
+                                    <Ionicons name="folder-open-outline" size={48} color="#D1D5DB" />
+                                    <Text style={styles.emptyChartText}>No Projects Yet</Text>
+                                    <Text style={styles.emptyChartSubtext}>
+                                        Create your first project to see distribution
+                                    </Text>
+                                </View>
+                            ) : (
+                                <>
+                                    <View style={styles.barChartContainer}>
+                                        {budgetRangeData.map((item, index) => {
+                                            const heightPercentage = maxCount > 0 ? (item.count / maxCount) * 100 : 0;
+                                            const finalHeight = Math.max(heightPercentage, 5);
+                                            const animatedHeight = chartAnim.interpolate({
+                                                inputRange: [0, 1],
+                                                outputRange: ['0%', `${finalHeight}%`]
+                                            });
+
+                                            return (
+                                                <View key={index} style={styles.barColumn}>
+                                                    <View style={styles.barValueContainer}>
+                                                        {item.count > 0 && (
+                                                            <Text style={styles.barValue}>{item.count}</Text>
+                                                        )}
+                                                    </View>
+                                                    <View style={styles.barTrack}>
+                                                        {item.count > 0 && (
+                                                            <Animated.View style={[styles.barFill, { height: animatedHeight, overflow: 'hidden' }]}>
+                                                                <LinearGradient
+                                                                    colors={['#0532A9', '#4F46E5']}
+                                                                    style={{ flex: 1 }}
+                                                                    start={{ x: 0, y: 1 }}
+                                                                    end={{ x: 0, y: 0 }}
+                                                                />
+                                                            </Animated.View>
+                                                        )}
+                                                    </View>
+                                                    <Text style={styles.chartLabel}>
+                                                        {item.range}
+                                                    </Text>
+                                                </View>
+                                            );
+                                        })}
+                                    </View>
+                                    <View style={styles.chartFooter}>
+                                        <View style={styles.chartFooterRow}>
+                                            <Ionicons name="trending-up" size={16} color="#0532A9" />
+                                            <Text style={styles.chartFooterText}>
+                                                Total projects: {totalProjects}
+                                            </Text>
                                         </View>
-                                        <Text style={styles.chartLabel}>
-                                            {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'][index]}
+                                        <Text style={styles.chartFooterSubtext}>
+                                            Showing distribution across budget ranges
                                         </Text>
                                     </View>
-                                ))}
-                            </View>
+                                </>
+                            )}
                         </View>
                     </ScrollView>
 
@@ -216,8 +317,8 @@ export default function ClientDashboardScreen({ navigation }: Props) {
                         
                         {isLoading ? (
                             <Spinner />
-                        ) : activeProjects.length > 0 ? (
-                            activeProjects.map((project) => (
+                        ) : activeProjectsList.length > 0 ? (
+                            activeProjectsList.map((project) => (
                                 <Pressable 
                                     key={project.id}
                                     onPress={() => navigation.navigate('ProjectDetails', { projectId: project.id })}
@@ -240,24 +341,151 @@ export default function ClientDashboardScreen({ navigation }: Props) {
                         )}
                     </View>
 
-                    {/* Activity Feed */}
+                    {/* Active Milestones */}
                     <View style={styles.listSection}>
-                        <Text style={styles.sectionTitle}>Recent Activity</Text>
-                        {RECENT_ACTIVITY.map((item) => (
-                            <View key={item.id} style={styles.activityItem}>
-                                <View style={[styles.activityDot, { backgroundColor: item.type === 'Payment' ? '#10B981' : '#F59E0B' }]} />
-                                <View style={{ flex: 1 }}>
-                                    <Text style={styles.activityTitle}>{item.title}</Text>
-                                    <Text style={styles.activityDesc}>{item.desc}</Text>
-                                </View>
-                                <Text style={styles.activityDate}>{item.date}</Text>
+                        <View style={styles.sectionHeader}>
+                            <Text style={styles.sectionTitle}>Active Milestones</Text>
+                            <Pressable onPress={() => navigation.navigate('AllProjects')}>
+                                <Text style={[styles.viewAllText, { color: '#0532A9' }]}>View All</Text>
+                            </Pressable>
+                        </View>
+
+                        {activeMilestones.length === 0 ? (
+                            <View style={styles.emptyState}>
+                                <Ionicons name="flag-outline" size={40} color="#D1D5DB" />
+                                <Text style={styles.emptyStateText}>No active milestones</Text>
                             </View>
-                        ))}
+                        ) : (
+                            <View style={styles.activityList}>
+                                {activeMilestones.map((milestone) => (
+                                    <Pressable 
+                                        key={milestone.id}
+                                        style={({pressed}) => [styles.milestoneItem, pressed && { opacity: 0.7 }]}
+                                        onPress={() => {
+                                            const projectId = milestone.project?.id;
+                                            if (projectId) {
+                                                navigation.navigate('ProjectDetails', { projectId });
+                                            }
+                                        }}
+                                    >
+                                        <View style={[
+                                            styles.milestoneIconContainer, 
+                                            { backgroundColor: milestone.status === 'IN_PROGRESS' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(245, 158, 11, 0.1)' }
+                                        ]}>
+                                            <Ionicons 
+                                                name={milestone.status === 'IN_PROGRESS' ? 'time-outline' : 'checkmark-done-outline'} 
+                                                size={20} 
+                                                color={milestone.status === 'IN_PROGRESS' ? '#3B82F6' : '#F59E0B'} 
+                                            />
+                                        </View>
+                                        <View style={styles.milestoneContent}>
+                                            <Text style={styles.milestoneTitle} numberOfLines={1}>{milestone.title}</Text>
+                                            <Text style={styles.milestoneProject} numberOfLines={1}>
+                                                {milestone.project?.title || 'Project'}
+                                            </Text>
+                                        </View>
+                                        <View style={styles.milestoneRight}>
+                                            <Text style={styles.milestoneAmount}>${milestone.amount}</Text>
+                                            <View style={[
+                                                styles.milestoneStatusBadge,
+                                                { backgroundColor: milestone.status === 'IN_PROGRESS' ? '#EFF6FF' : '#FEF3C7' }
+                                            ]}>
+                                                <Text style={[
+                                                    styles.milestoneStatusText,
+                                                    { color: milestone.status === 'IN_PROGRESS' ? '#3B82F6' : '#F59E0B' }
+                                                ]}>
+                                                    {milestone.status === 'IN_PROGRESS' ? 'In Progress' : 'Submitted'}
+                                                </Text>
+                                            </View>
+                                        </View>
+                                    </Pressable>
+                                ))}
+                            </View>
+                        )}
                     </View>
 
                     <View style={{ height: 100 }} />
                 </View>
             </ScrollView>
+        </View>
+    );
+}
+
+// Donut Chart Component
+function DonutChart({ completed, active, percentage, animValue }: { completed: number; active: number; percentage: number; animValue: Animated.Value }) {
+    const size = 140; // Increased size
+    const strokeWidth = 14; // Thicker stroke
+    const center = size / 2;
+    const radius = (size - strokeWidth) / 2;
+    const circumference = 2 * Math.PI * radius;
+
+    const total = completed + active;
+    const completedPercentage = total > 0 ? (completed / total) * 100 : 0;
+    const targetOffset = circumference - (completedPercentage / 100) * circumference;
+
+    const strokeDashoffset = animValue.interpolate({
+        inputRange: [0, 1],
+        outputRange: [circumference, targetOffset],
+    });
+
+    return (
+        <View style={{ alignItems: 'center' }}>
+            <Svg width={size} height={size}>
+                <G rotation="-90" origin={`${center}, ${center}`}>
+                    <Circle
+                        cx={center}
+                        cy={center}
+                        r={radius}
+                        stroke="#F3F4F6"
+                        strokeWidth={strokeWidth}
+                        fill="none"
+                    />
+                    <Circle
+                        cx={center}
+                        cy={center}
+                        r={radius}
+                        stroke="#10B981"
+                        strokeWidth={strokeWidth}
+                        fill="none"
+                        strokeDasharray={circumference}
+                        strokeDashoffset={0}
+                        strokeLinecap="round"
+                    />
+                    <AnimatedCircle
+                        cx={center}
+                        cy={center}
+                        r={radius}
+                        stroke="#A855F7"
+                        strokeWidth={strokeWidth}
+                        fill="none"
+                        strokeDasharray={circumference}
+                        strokeDashoffset={strokeDashoffset}
+                        strokeLinecap="round"
+                    />
+                </G>
+                <SvgText
+                    x={center}
+                    y={center}
+                    textAnchor="middle"
+                    alignmentBaseline="middle"
+                    fontSize="24"
+                    fontWeight="800"
+                    fill="#1F2937"
+                    letterSpacing="-1"
+                >
+                    {percentage}%
+                </SvgText>
+                <SvgText
+                    x={center}
+                    y={center + 18}
+                    textAnchor="middle"
+                    fontSize="12"
+                    fontWeight="500"
+                    fill="#6B7280"
+                >
+                    Complete
+                </SvgText>
+            </Svg>
         </View>
     );
 }
@@ -321,10 +549,6 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255, 255, 255, 0.1)',
         borderWidth: 1,
         borderColor: 'rgba(255, 255, 255, 0.15)',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8,
     },
     statIconCircle: {
         width: 36,
@@ -352,32 +576,33 @@ const styles = StyleSheet.create({
         marginBottom: 16,
     },
     chartsScroll: {
-        paddingRight: 20,
-        paddingBottom: 20,
+        paddingRight: 10, 
+        paddingLeft: 10,// Add padding only to end of scroll
+        paddingBottom: 24, // More space for shadow
         gap: 16,
     },
     chartCard: {
         backgroundColor: '#fff',
-        borderRadius: 20,
-        padding: 16,
-        width: width * 0.75, // Responsive width
-        height: 220,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 8,
-        elevation: 3,
+        borderRadius: 24,
+        paddingTop: 18,
+        paddingHorizontal: 16,
+        paddingBottom: 16,
+        width: width * 0.85,
+        height: 280,
+        elevation: 6,
+        justifyContent: 'space-between',
     },
     cardHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 16,
+        marginBottom: 8,
     },
     cardTitle: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: '#1F2937',
+        fontSize: 18,
+        fontWeight: '700',
+        color: '#111827',
+        letterSpacing: -0.5,
     },
     // Donut Styles
     donutContainer: {
@@ -385,87 +610,117 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-around',
+        paddingVertical: 10,
     },
     donutWrapper: {
-        width: 120,
-        height: 120,
+        width: 140,
+        height: 140,
         position: 'relative',
         justifyContent: 'center',
         alignItems: 'center',
     },
-    donutCircle: {
-        width: 120,
-        height: 120,
-        borderRadius: 60,
-        borderWidth: 12,
-        position: 'absolute',
-    },
-    donutHole: {
-        width: 96,
-        height: 96,
-        borderRadius: 48,
-        backgroundColor: '#fff',
-        justifyContent: 'center',
-        alignItems: 'center',
-        position: 'absolute',
-    },
-    donutValue: {
-        fontSize: 20,
-        fontWeight: 'bold',
-        color: '#111827',
-    },
-    donutLabel: {
-        fontSize: 10,
-        color: '#6B7280',
-    },
+    // ... (keep existing donut circle styles if they are generic, or update if needed)
     donutLegend: {
-        gap: 8,
+        gap: 12,
+        justifyContent: 'center',
     },
     legendItem: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 6,
+        gap: 8,
+        backgroundColor: '#F9FAFB',
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 8,
     },
     legendDot: {
-        width: 8,
-        height: 8,
-        borderRadius: 4,
+        width: 10,
+        height: 10,
+        borderRadius: 5,
     },
     legendText: {
-        fontSize: 12,
-        color: '#4B5563',
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#374151',
     },
     // Bar Chart Styles
     barChartContainer: {
-        flex: 1,
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'flex-end',
-        paddingHorizontal: 8,
-        height: 140, // Height for bars
+        paddingHorizontal: 12,
+        height: 90,
+        marginTop: 12,
+        marginBottom: 8,
     },
     barColumn: {
+        flex: 1,
         alignItems: 'center',
-        height: '100%',
         justifyContent: 'flex-end',
-        gap: 8,
+        gap: 6,
     },
     barTrack: {
-        width: 8,
-        height: 120, // Max height of bar area
-        backgroundColor: '#F3F4F6',
-        borderRadius: 4,
+        width: 28,
+        height: '100%', 
+        backgroundColor: 'transparent',
         justifyContent: 'flex-end',
-        overflow: 'hidden',
+        alignItems: 'center',
     },
     barFill: {
         width: '100%',
-        borderRadius: 4,
+        borderRadius: 8,
+        minHeight: 8,
     },
     chartLabel: {
-        fontSize: 10,
-        color: '#9CA3AF',
-        fontWeight: '500',
+        fontSize: 11,
+        color: '#6B7280',
+        fontWeight: '600',
+        marginTop: 4,
+    },
+    chartSubtitle: {
+        fontSize: 12,
+        color: '#6B7280',
+        marginTop: -2,
+        marginBottom: 16,
+    },
+    // ... (keep other styles)
+    barValueContainer: {
+        position: 'absolute',
+        top: -16,
+        width: '100%',
+        alignItems: 'center',
+        zIndex: 10,
+    },
+    barValue: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#1F2937',
+        backgroundColor: '#F3F4F6',
+        paddingHorizontal: 5,
+        paddingVertical: 1,
+        borderRadius: 4,
+        overflow: 'hidden',
+    },
+    chartFooter: {
+        marginTop: 12,
+        paddingTop: 12,
+        borderTopWidth: 1,
+        borderTopColor: '#F3F4F6',
+        gap: 6,
+    },
+    chartFooterRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    chartFooterText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#1F2937',
+    },
+    chartFooterSubtext: {
+        fontSize: 12,
+        color: '#6B7280',
     },
     // Quick Actions
     quickActionsRow: {
@@ -475,10 +730,6 @@ const styles = StyleSheet.create({
     },
     actionButton: {
         flex: 1,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
         elevation: 2,
     },
     actionGradient: {
@@ -520,10 +771,6 @@ const styles = StyleSheet.create({
         padding: 16,
         borderRadius: 16,
         marginBottom: 12,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.03,
-        shadowRadius: 8,
         elevation: 1,
     },
     projectListIcon: {
@@ -561,33 +808,73 @@ const styles = StyleSheet.create({
         color: '#9CA3AF',
         fontSize: 14,
     },
-    activityItem: {
+    activityList: {
+        gap: 12,
+    },
+    milestoneItem: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#fff',
-        padding: 16,
-        borderRadius: 16,
-        marginBottom: 12,
+        gap: 12,
+        paddingVertical: 12,
+        paddingHorizontal: 12,
+        backgroundColor: '#F9FAFB',
+        borderRadius: 12,
+        marginBottom: 8,
     },
-    activityDot: {
-        width: 10,
-        height: 10,
-        borderRadius: 5,
-        marginRight: 16,
+    milestoneIconContainer: {
+        width: 44,
+        height: 44,
+        borderRadius: 12,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
-    activityTitle: {
+    milestoneContent: {
+        flex: 1,
+    },
+    milestoneTitle: {
         fontSize: 14,
         fontWeight: '600',
         color: '#1F2937',
-        marginBottom: 2,
+        marginBottom: 4,
     },
-    activityDesc: {
+    milestoneProject: {
         fontSize: 12,
         color: '#6B7280',
     },
-    activityDate: {
-        fontSize: 11,
+    milestoneRight: {
+        alignItems: 'flex-end',
+        gap: 6,
+    },
+    milestoneAmount: {
+        fontSize: 15,
+        fontWeight: '700',
+        color: '#0532A9',
+    },
+    milestoneStatusBadge: {
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 12,
+    },
+    milestoneStatusText: {
+        fontSize: 10,
+        fontWeight: '600',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+    },
+    emptyChartState: {
+        alignItems: 'center',
+        paddingVertical: 32,
+    },
+    emptyChartText: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#6B7280',
+        marginTop: 12,
+    },
+    emptyChartSubtext: {
+        fontSize: 13,
         color: '#9CA3AF',
-        marginLeft: 8,
+        marginTop: 4,
+        textAlign: 'center',
     },
 });

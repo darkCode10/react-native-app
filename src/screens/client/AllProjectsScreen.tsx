@@ -90,8 +90,8 @@ export default function AllProjectsScreen({ navigation, searchQuery = '' }: Prop
         if (searchQuery.trim() || !projects) return null;
         
         const totalProjects = projects.length;
-        const activeProjects = projects.filter(p => p.status === 'DRAFT').length;
-        const completedProjects = 0; // Freelansync only has DRAFT status currently
+        const activeProjects = projects.filter(p => p.status === 'ACTIVE').length;
+        const completedProjects = projects.filter(p => p.status === 'COMPLETED').length;
 
         return (
             <View style={styles.headerContainer}>

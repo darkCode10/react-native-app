@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, FlatList, Pressable, Image, TextInput, Animated } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
-import { getChatsForUser } from '@/api/chat-functions';
+import { getAllChatsForUser } from '@/api/chat-functions';
 import { userAuthStore } from '@/store/user-auth-store';
 import { chatsStore } from '@/store/chats-store';
 import { Spinner, Empty, Avatar, Button } from '@/components/ui';
@@ -9,6 +9,8 @@ import { useNavigation } from '@react-navigation/native';
 import { ChatFromBackendType } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { ClientStackParamList, FreelancerStackParamList } from '@/navigation/types';
 
 interface ChatsScreenProps {
     searchQuery?: string;
@@ -17,41 +19,25 @@ interface ChatsScreenProps {
 export default function ChatsScreen({ searchQuery = '' }: ChatsScreenProps) {
     const { user } = userAuthStore();
     const { setChatsDataArray, setActiveChat } = chatsStore();
-    const navigation = useNavigation();
-
-    console.log('[ChatsScreen] User state:', {
-        userId: user?.userId,
-        role: user?.role,
-        username: user?.username
-    });
+    const navigation = useNavigation<NativeStackNavigationProp<ClientStackParamList & FreelancerStackParamList>>();
 
     const { data: chats, isLoading, isFetching, refetch, error } = useQuery({
         queryKey: ['chats', user?.userId, user?.role],
         queryFn: () => {
-            console.log('[ChatsScreen] Fetching chats for:', {
-                userId: user!.userId,
-                userRole: user!.role
-            });
-            return getChatsForUser({
-                userId: user!.userId,
+            return getAllChatsForUser({
                 userRole: user!.role,
-                getDetails: true,
+                userId: user!.userId,
             });
         },
         enabled: !!user?.userId && !!user?.role,
         placeholderData: [], // Show empty array immediately while loading
-        staleTime: 0, // Always fetch fresh data for debugging
+        staleTime: 30 * 1000, // Consider data fresh for 30 seconds
         refetchOnMount: true, // Always refetch on mount
         refetchOnWindowFocus: true, // Refetch when app comes to foreground
+        refetchInterval: 20 * 1000, // Poll every 5 minutes (same as web version)
+        refetchIntervalInBackground: true, // Continue polling in background
         gcTime: 300000, // Keep cached data for 5 minutes
         retry: 1, // Only retry once on failure
-    });
-
-    console.log('[ChatsScreen] Chats data:', {
-        chatsCount: chats?.length || 0,
-        isLoading,
-        isFetching,
-        error: error ? String(error) : null
     });
 
     useEffect(() => {
@@ -149,7 +135,13 @@ export default function ChatsScreen({ searchQuery = '' }: ChatsScreenProps) {
             {!searchQuery.trim() && (
                 <Button 
                     title={user?.role === 'client' ? "Find Freelancers" : "Find Projects"}
-                    onPress={() => navigation.navigate(user?.role === 'client' ? 'ViewFreelancers' : 'FreelancerProjects' as any)}
+                    onPress={() => {
+                        if (user?.role === 'client') {
+                            navigation.navigate('ViewFreelancers' as never);
+                        } else {
+                            navigation.navigate('FreelancerProjects' as never);
+                        }
+                    }}
                     style={styles.emptyButton}
                     size="sm"
                 />
@@ -387,10 +379,6 @@ const styles = StyleSheet.create({
         paddingHorizontal: 5,
         borderWidth: 2,
         borderColor: '#FFFFFF',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.15,
-        shadowRadius: 3,
         elevation: 3,
     },
     unreadBadgeText: {

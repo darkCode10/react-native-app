@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Animated } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useFocusEffect } from '@react-navigation/native';
 import { ClientStackParamList } from '@/navigation/types';
 import { Button, Input } from '@/components/ui';
 import { SkillsPicker } from '@/components/SkillsPicker';
@@ -15,7 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 type Props = NativeStackScreenProps<ClientStackParamList, 'CreateProject'>;
 
 export default function CreateProjectScreen({ navigation }: Props) {
-    const { user } = userAuthStore();
+    const { user, setUser } = userAuthStore();
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
     const [budget, setBudget] = useState('');
@@ -27,27 +26,21 @@ export default function CreateProjectScreen({ navigation }: Props) {
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const slideAnim = useRef(new Animated.Value(50)).current;
 
-    useFocusEffect(
-        useCallback(() => {
-            // Reset animations
-            fadeAnim.setValue(0);
-            slideAnim.setValue(50);
-
-            // Start animations
-            Animated.parallel([
-                Animated.timing(fadeAnim, {
-                    toValue: 1,
-                    duration: 600,
-                    useNativeDriver: true,
-                }),
-                Animated.timing(slideAnim, {
-                    toValue: 0,
-                    duration: 600,
-                    useNativeDriver: true,
-                }),
-            ]).start();
-        }, [])
-    );
+    // Run animation only once on first mount
+    useEffect(() => {
+        Animated.parallel([
+            Animated.timing(fadeAnim, {
+                toValue: 1,
+                duration: 600,
+                useNativeDriver: true,
+            }),
+            Animated.timing(slideAnim, {
+                toValue: 0,
+                duration: 600,
+                useNativeDriver: true,
+            }),
+        ]).start();
+    }, []); // Empty dependency array = runs only once
 
     const handleSubmit = async () => {
         if (!title || !description || !budget || domains.length === 0 || skills.length === 0) {
@@ -71,11 +64,18 @@ export default function CreateProjectScreen({ navigation }: Props) {
                 clientId: user.userId,
             });
             
+            // Update user's wallet amount locally
+            if (user) {
+                const newWalletAmount = user.wallet_amount - parseFloat(budget);
+                setUser({ ...user, wallet_amount: newWalletAmount });
+            }
+            
             toast.success('Project created successfully');
             navigation.navigate('ProjectDetails', { projectId });
-        } catch (error) {
-            toast.error('Failed to create project');
-            console.error(error);
+        } catch (error: any) {
+            const errorMessage = error?.message || 'Failed to create project';
+            toast.error(errorMessage);
+            console.error('[CreateProject] Error:', error);
         } finally {
             setLoading(false);
         }
@@ -197,7 +197,6 @@ export default function CreateProjectScreen({ navigation }: Props) {
                         disabled={loading}
                         style={styles.submitButton}
                         textStyle={styles.submitButtonText}
-                        icon={<Ionicons name="arrow-forward" size={20} color="#fff" />}
                     />
                 </Animated.View>
             </ScrollView>

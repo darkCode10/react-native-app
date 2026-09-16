@@ -13,6 +13,7 @@ import { useNavigation } from '@react-navigation/native';
 import { userAuthStore } from '@/store/user-auth-store';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
+import { getAllNotificationsForUser } from '@/api/notifications-functions';
 
 interface CustomHeaderProps {
     title: string;
@@ -29,6 +30,7 @@ interface CustomHeaderProps {
     searchQuery?: string;
     onSearchChange?: (text: string) => void;
     searchPlaceholder?: string;
+    hideNotificationIcon?: boolean;
 }
 
 export const CustomHeader: React.FC<CustomHeaderProps> = ({ 
@@ -45,15 +47,18 @@ export const CustomHeader: React.FC<CustomHeaderProps> = ({
     showSearchBar = false,
     searchQuery = '',
     onSearchChange,
-    searchPlaceholder = 'Search...'
+    searchPlaceholder = 'Search...',
+    hideNotificationIcon = false,
 }) => {
     const navigation = useNavigation();
     const { user, reset } = userAuthStore();
 
     const handleProfilePress = () => {
         if (role === 'client') {
+            // Navigate to ClientProfile within current stack
             (navigation as any).navigate('ClientProfile');
         } else {
+            // Navigate to FreelancerProfile within current stack
             (navigation as any).navigate('FreelancerProfile');
         }
     };
@@ -64,9 +69,26 @@ export const CustomHeader: React.FC<CustomHeaderProps> = ({
     };
 
     const handleChatPress = () => {
+        // Navigate to Chats screen within current stack
         (navigation as any).navigate('Chats');
     };
-    
+
+    const handleNotificationPress = () => {
+        // Navigate to Notifications tab
+        (navigation as any).navigate('Notifications', { screen: 'NotificationsMain' });
+    };
+
+    // Fetch notifications to get unread count
+    const { data: notifications } = useQuery({
+        queryKey: ['get-all-notifications-for-user', user?.userId],
+        queryFn: () => getAllNotificationsForUser(user!.userId),
+        enabled: !!user?.userId,
+        refetchInterval: 20 * 1000, // Refetch every 20 seconds
+        refetchIntervalInBackground: true,
+    });
+
+    const unreadNotificationCount = notifications?.filter((n) => !n.read).length || 0;
+
     return (
         <>
             {showBackButton ? (
@@ -164,12 +186,26 @@ export const CustomHeader: React.FC<CustomHeaderProps> = ({
                             )}
                         </View>
                         
-                        {/* Right Icons - Chat Only */}
+                        {/* Right Icons - Notifications and Chat */}
                         <View style={styles.headerIconsContainer}>
+                            {/* Notification Bell */}
+                            {!hideNotificationIcon && (
+                                <Pressable onPress={handleNotificationPress} style={styles.notificationButton}>
+                                    <Ionicons name="notifications" size={26} color="#0532A9" />
+                                    {unreadNotificationCount > 0 && (
+                                        <View style={styles.notificationBadge}>
+                                            <Text style={styles.notificationBadgeText}>
+                                                {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
+                                            </Text>
+                                        </View>
+                                    )}
+                                </Pressable>
+                            )}
+
                             {/* Chat Icon - Show unless hideChatIcon is true */}
                             {!hideChatIcon && (
                                 <Pressable onPress={handleChatPress} style={styles.chatButton}>
-                                    <Ionicons name="chatbubbles-outline" size={26} color="#4B5563" />
+                                    <Ionicons name="chatbubbles" size={26} color="#0532A9" />
                                     {unseenChatsCount > 0 && (
                                         <View style={styles.chatBadge}>
                                             <Text style={styles.chatBadgeText}>
@@ -207,12 +243,26 @@ export const CustomHeader: React.FC<CustomHeaderProps> = ({
                         </Text>
                     </View>
 
-                    {/* Right Icons - Chat Only */}
+                    {/* Right Icons - Notifications and Chat */}
                     <View style={styles.headerIconsContainer}>
+                        {/* Notification Bell */}
+                        {!hideNotificationIcon && (
+                            <Pressable onPress={handleNotificationPress} style={styles.notificationButton}>
+                                <Ionicons name="notifications" size={26} color="#0532A9" />
+                                {unreadNotificationCount > 0 && (
+                                    <View style={styles.notificationBadge}>
+                                        <Text style={styles.notificationBadgeText}>
+                                            {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
+                                        </Text>
+                                    </View>
+                                )}
+                            </Pressable>
+                        )}
+
                         {/* Chat Icon - Hidden on Chats screen */}
                         {!hideChatIcon && (
                             <Pressable onPress={handleChatPress} style={styles.chatButton}>
-                                <Ionicons name="chatbubbles-outline" size={26} color="#4B5563" />
+                                <Ionicons name="chatbubbles" size={26} color="#0532A9" />
                                 {unseenChatsCount > 0 && (
                                     <View style={styles.chatBadge}>
                                         <Text style={styles.chatBadgeText}>
@@ -241,10 +291,6 @@ const styles = StyleSheet.create({
         borderBottomWidth: 1,
         borderBottomColor: '#e0e0e0',
         elevation: 4,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
     },
     chatHeader: {
         paddingVertical: 12,
@@ -256,10 +302,6 @@ const styles = StyleSheet.create({
         paddingBottom: 10,
         paddingHorizontal: 12,
         elevation: 10,
-        shadowColor: '#0532A9',
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.4,
-        shadowRadius: 10,
         overflow: 'hidden',
         borderBottomLeftRadius: 16,
         borderBottomRightRadius: 16,
@@ -348,10 +390,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         borderWidth: 1.5,
         borderColor: 'rgba(255, 255, 255, 0.4)',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.2,
-        shadowRadius: 3,
         elevation: 3,
     },
     chatAvatarContainer: {
@@ -363,10 +401,6 @@ const styles = StyleSheet.create({
         borderRadius: 19,
         borderWidth: 2,
         borderColor: 'rgba(255, 255, 255, 0.8)',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.3,
-        shadowRadius: 3,
         elevation: 4,
     },
     chatAvatarPlaceholder: {
@@ -378,10 +412,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         borderWidth: 2,
         borderColor: 'rgba(255, 255, 255, 0.8)',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.3,
-        shadowRadius: 3,
         elevation: 4,
     },
     chatAvatarText: {
@@ -397,17 +427,11 @@ const styles = StyleSheet.create({
         fontWeight: '700',
         color: '#FFFFFF',
         marginBottom: 2,
-        textShadowColor: 'rgba(0, 0, 0, 0.4)',
-        textShadowOffset: { width: 0, height: 2 },
-        textShadowRadius: 4,
         letterSpacing: 0.3,
     },
     chatSubtitle: {
         fontSize: 12,
         color: 'rgba(255, 255, 255, 0.9)',
-        textShadowColor: 'rgba(0, 0, 0, 0.2)',
-        textShadowOffset: { width: 0, height: 1 },
-        textShadowRadius: 2,
     },
     chatProjectMeta: {
         flexDirection: 'row',
@@ -575,6 +599,38 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 4,
+    },
+    notificationButton: {
+        width: 40,
+        height: 40,
+        justifyContent: 'center',
+        alignItems: 'center',
+        position: 'relative',
+    },
+    notificationBadge: {
+        position: 'absolute',
+        top: -2,
+        right: -2,
+        backgroundColor: '#DC2626',
+        borderRadius: 10,
+        minWidth: 20,
+        height: 20,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 5,
+        borderWidth: 2,
+        borderColor: '#FFFFFF',
+        shadowColor: '#DC2626',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.4,
+        shadowRadius: 3,
+        elevation: 4,
+    },
+    notificationBadgeText: {
+        color: '#FFFFFF',
+        fontSize: 11,
+        fontWeight: '800',
+        textAlign: 'center',
     },
     searchHeader: {
         paddingHorizontal: 8,

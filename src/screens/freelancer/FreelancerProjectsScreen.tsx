@@ -101,8 +101,8 @@ export default function FreelancerProjectsScreen({ navigation, searchQuery = '' 
         if (searchQuery.trim() || !projects) return null;
         
         const totalProjects = projects.length;
-        const activeProjects = projects.filter(p => p.project?.status === 'active').length;
-        const completedProjects = projects.filter(p => p.project?.status === 'completed').length;
+        const activeProjects = projects.filter(p => p.project?.status === 'ACTIVE').length;
+        const completedProjects = projects.filter(p => p.project?.status === 'COMPLETED').length;
 
         return (
             <View style={styles.headerContainer}>
@@ -213,7 +213,7 @@ export default function FreelancerProjectsScreen({ navigation, searchQuery = '' 
                             {/* Left Accent Line - Status based color */}
                             <View style={[
                                 styles.accentLine, 
-                                { backgroundColor: item.project?.status === 'active' ? '#10B981' : item.project?.status === 'completed' ? '#0532A9' : '#F59E0B' }
+                                { backgroundColor: item.project?.status === 'ACTIVE' ? '#10B981' : item.project?.status === 'COMPLETED' ? '#0532A9' : '#F59E0B' }
                             ]} />
                             
                             <View style={styles.cardContent}>
@@ -222,11 +222,11 @@ export default function FreelancerProjectsScreen({ navigation, searchQuery = '' 
                                     <Text style={styles.projectTitle} numberOfLines={1}>{item.project?.title || 'Untitled Project'}</Text>
                                     <View style={[
                                         styles.statusBadge,
-                                        { backgroundColor: item.project?.status === 'active' ? '#ECFDF5' : '#EFF6FF' }
+                                        { backgroundColor: item.project?.status === 'ACTIVE' ? '#ECFDF5' : '#EFF6FF' }
                                     ]}>
                                         <Text style={[
                                             styles.statusText,
-                                            { color: item.project?.status === 'active' ? '#059669' : '#0532A9' }
+                                            { color: item.project?.status === 'ACTIVE' ? '#059669' : '#0532A9' }
                                         ]}>
                                             {item.project?.status || 'DRAFT'}
                                         </Text>

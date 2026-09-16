@@ -2,7 +2,7 @@ import React from 'react';
 import { Pressable, Text, StyleSheet, ActivityIndicator, ViewStyle, TextStyle } from 'react-native';
 
 interface ButtonProps {
-    onPress?: () => void;
+    onPress?: (event?: any) => void;
     title?: string;
     children?: React.ReactNode;
     variant?: 'default' | 'outline' | 'ghost' | 'destructive';
@@ -39,13 +39,19 @@ export const Button: React.FC<ButtonProps> = ({
         textStyle,
     ];
 
+    const handlePress = (event: any) => {
+        if (onPress) {
+            onPress(event);
+        }
+    };
+
     return (
         <Pressable
             style={({ pressed }) => [
                 ...buttonStyles,
                 pressed && !disabled && styles.button_pressed,
             ]}
-            onPress={onPress}
+            onPress={handlePress}
             disabled={disabled || loading}
         >
             {loading ? (

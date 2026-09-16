@@ -22,6 +22,7 @@ export const Avatar: React.FC<AvatarProps> = ({
                 <Image
                     source={{ uri: source }}
                     style={[styles.image, { width: size, height: size, borderRadius: size / 2 }]}
+                    resizeMode="cover"
                 />
             ) : (
                 <Text style={[styles.fallback, { fontSize: size * 0.4 }]}>{initials}</Text>
@@ -38,7 +39,7 @@ const styles = StyleSheet.create({
         overflow: 'hidden',
     },
     image: {
-        resizeMode: 'cover',
+        // resizeMode moved to prop on Image component
     },
     fallback: {
         fontWeight: '600',

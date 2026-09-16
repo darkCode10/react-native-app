@@ -34,7 +34,7 @@ export default function NotificationsScreen({ navigation }: Props) {
         queryKey: ['get-all-notifications-for-user', user?.userId],
         queryFn: () => getAllNotificationsForUser(user!.userId),
         enabled: !!user?.userId,
-        refetchInterval: 20 * 1000, // Refetch every 20 seconds
+        refetchInterval: 20* 1000,
         refetchIntervalInBackground: true,
     });
 
@@ -99,7 +99,6 @@ export default function NotificationsScreen({ navigation }: Props) {
                     queryKey: ['get-all-notifications-for-user'],
                 });
             } catch (error) {
-                console.error('Error marking notification as read:', error);
                 // Continue with navigation even if marking as read fails
             }
         }
@@ -113,26 +112,12 @@ export default function NotificationsScreen({ navigation }: Props) {
                 navigation.navigate('ProjectDetails', {
                     projectId: notification.project_id,
                 });
-            } else if (notification.type === 'Milestone_Submitted' && notification.milestone_id) {
-                queryClient.invalidateQueries({
-                    queryKey: ['get-milestone-details-by-id', notification.milestone_id],
-                });
-                navigation.navigate('MilestoneDetails', {
-                    milestoneId: notification.milestone_id,
-                });
             }
         } else {
             // Freelancer
             if (notification.type === 'Invitation_Recieved') {
                 queryClient.invalidateQueries({
                     queryKey: ['freelancerInvitations'],
-                });
-            } else if (notification.type === 'Milestone_Assigned' && notification.project_id) {
-                queryClient.invalidateQueries({
-                    queryKey: ['project', notification.project_id],
-                });
-                navigation.navigate('ProjectDetails', {
-                    projectId: notification.project_id,
                 });
                 navigation.navigate('Invitations');
             } else if (notification.type === 'Milestone_Assigned' && notification.project_id) {
@@ -156,8 +141,6 @@ export default function NotificationsScreen({ navigation }: Props) {
                 return 'mail';
             case 'Milestone_Assigned':
                 return 'flag';
-            case 'Milestone_Submitted':
-                return 'checkmark-done';
             default:
                 return 'notifications';
         }
@@ -173,8 +156,6 @@ export default function NotificationsScreen({ navigation }: Props) {
                 return '#3B82F6';
             case 'Milestone_Assigned':
                 return '#F59E0B';
-            case 'Milestone_Submitted':
-                return '#8B5CF6';
             default:
                 return '#6B7280';
         }
@@ -353,10 +334,6 @@ const styles = StyleSheet.create({
         borderBottomWidth: 1,
         borderBottomColor: '#F3F4F6',
         elevation: 2,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 2,
     },
     backButton: {
         width: 40,
@@ -401,10 +378,6 @@ const styles = StyleSheet.create({
         marginHorizontal: 16,
         marginTop: 16,
         borderRadius: 12,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 2,
         elevation: 1,
     },
     actionButton: {
@@ -454,10 +427,6 @@ const styles = StyleSheet.create({
         borderRadius: 16,
         padding: 16,
         gap: 12,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
         elevation: 2,
         marginBottom: 4,
     },

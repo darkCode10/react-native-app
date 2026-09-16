@@ -75,9 +75,7 @@ export async function updateFreelancerProfileImage({
 export async function getAllFreelancers(): Promise<FreelancerFromBackendType[]> {
     const { data, error } = await supabaseClient
         .from("freelancers")
-        .select(
-            "id, username, description, email, profile_pic, role, skills, domains, created_at"
-        );
+        .select("*");
 
     if (error) {
         console.error(error.message);
@@ -91,9 +89,7 @@ export async function getFreelancersToRecommend(
 ): Promise<FreelancerFromBackendType[]> {
     const { data: allFreelancers, error } = await supabaseClient
         .from("freelancers")
-        .select(
-            "id, username, description, email, profile_pic, role, skills, domains, created_at"
-        );
+        .select("*");
     if (error) throw new Error(error.message);
 
     const { data: memberFreelancers, error: freelancerError } = await supabaseClient
@@ -116,9 +112,7 @@ export async function getFreelancerDetailsForClient(
 ): Promise<FreelancerFromBackendType> {
     const { data, error } = await supabaseClient
         .from("freelancers")
-        .select(
-            "id, username, description, email, profile_pic, role, skills, domains, created_at"
-        )
+        .select("*")
         .eq("id", freelancerId)
         .single();
 
@@ -135,9 +129,7 @@ export async function getFreelancerDetails(
 ): Promise<FreelancerFromBackendType> {
     const { data, error } = await supabaseClient
         .from("freelancers")
-        .select(
-            "id, username, description, email, profile_pic, role, skills, domains, created_at"
-        )
+        .select("*")
         .eq("id", freelancerId)
         .single();
 
